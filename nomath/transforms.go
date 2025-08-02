@@ -10,7 +10,7 @@ type Transform struct {
 	Rotation    Vec3 // Euler angles in radians (order: YXZ - yaw, pitch, roll)
 	Scale       Vec3 // Scale factors
 	ModelMatrix Mat4
-	dirty       bool // track whether transform changed
+	Dirty       bool // track whether transform changed
 }
 
 // NewTransform creates a new Transform with default values
@@ -32,7 +32,7 @@ func (t *Transform) GetMatrix() Mat4 {
 func (t *Transform) SetPosition(pos Vec3) {
 	if !t.Position.Equals(pos) {
 		t.Position = pos
-		t.dirty = true
+		t.Dirty = true
 	}
 }
 
@@ -45,7 +45,7 @@ func (t *Transform) SetRotation(rot Vec3) {
 
 	if !t.Rotation.Equals(rot) {
 		t.Rotation = rot
-		t.dirty = true
+		t.Dirty = true
 	}
 }
 
@@ -58,14 +58,14 @@ func (t *Transform) SetScale(scale Vec3) {
 
 	if !t.Scale.Equals(scale) {
 		t.Scale = scale
-		t.dirty = true
+		t.Dirty = true
 	}
 }
 
 // Translate moves the transform by the specified offset
 func (t *Transform) Translate(offset Vec3) {
 	t.Position = t.Position.Add(offset)
-	t.dirty = true
+	t.Dirty = true
 }
 
 // Rotate adds rotation to the current Euler angles
@@ -74,7 +74,7 @@ func (t *Transform) Rotate(rotation Vec3) {
 	t.Rotation.X = wrapAngle(t.Rotation.X)
 	t.Rotation.Y = wrapAngle(t.Rotation.Y)
 	t.Rotation.Z = wrapAngle(t.Rotation.Z)
-	t.dirty = true
+	t.Dirty = true
 }
 
 // GetForward returns the forward vector (Z+)
@@ -176,7 +176,7 @@ func wrapAngle(angle float64) float64 {
 
 // UpdateModelMatrix updates the model matrix and marks geometry as needing update
 func (t *Transform) UpdateModelMatrix() {
-	if !t.dirty {
+	if !t.Dirty {
 		return
 	}
 	// Create individual transformation matrices
@@ -203,5 +203,5 @@ func (t *Transform) UpdateModelMatrix() {
 		Multiply(scale).
 		Multiply(rotation).
 		Multiply(translation)
-	t.dirty = false
+	t.Dirty = false
 }

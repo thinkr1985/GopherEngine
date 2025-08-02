@@ -2,7 +2,7 @@ package gui
 
 import (
 	"GopherEngine/core"
-	"fmt"
+	"GopherEngine/nomath"
 	"image"
 	"image/color"
 	_ "math"
@@ -13,17 +13,16 @@ import (
 
 var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
+var lastMousePos rl.Vector2
+var isFirstFrame = true
 
-func Window(getImage func() *image.RGBA, scene *core.Scene) {
-	minWidth := 300
-	minHeight := 200
+func initWindow() {
+
 	// rl.SetConfigFlags(rl.FlagMsaa4xHint) // 4X anti-aliasing .. can reduce FPS.
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
-	defer rl.CloseWindow()
 
 	debugFont = rl.LoadFontEx("fonts/CONSOLA.TTF", 12, nil, 0)
-	defer rl.UnloadFont(debugFont)
 
 	icon := rl.LoadImage(engine_icon_path)
 	rl.SetWindowIcon(*icon)
@@ -31,6 +30,9 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 
 	rl.SetTargetFPS(0) // uncapped
 
+}
+
+func loadTexture(getImage func() *image.RGBA) rl.Texture2D {
 	img := getImage()
 	rgbaSlice := convertToColorRGBASlice(img)
 	rlImg := rl.Image{
@@ -40,44 +42,131 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.UncompressedR8g8b8a8,
 	}
-	tex := rl.LoadTextureFromImage(&rlImg)
+	return rl.LoadTextureFromImage(&rlImg)
+}
+
+func handleWindowResize() {
+	minWidth := 300
+	minHeight := 200
+	if rl.IsWindowResized() {
+		newWidth := int(rl.GetScreenWidth())
+		newHeight := int(rl.GetScreenHeight())
+
+		// Enforce minimum size
+		if newWidth < minWidth || newHeight < minHeight {
+			rl.SetWindowSize(
+				max(newWidth, minWidth),
+				max(newHeight, minHeight),
+			)
+		}
+
+		// Update dimensions
+		core.SCREEN_WIDTH = newWidth
+		core.SCREEN_HEIGHT = newHeight
+
+	}
+}
+
+func Window(getImage func() *image.RGBA, scene *core.Scene) {
+	initWindow()
+	tex := loadTexture(getImage)
+	defer rl.CloseWindow()
+	defer rl.UnloadFont(debugFont)
 	defer rl.UnloadTexture(tex)
 
+	// window render loop
 	for !rl.WindowShouldClose() {
+		handleWindowResize()
+		handleKeyboardEvents(scene)
+		handleMouseEvents(scene)
 
-		// Handle window resize
-		if rl.IsWindowResized() {
-			newWidth := int(rl.GetScreenWidth())
-			newHeight := int(rl.GetScreenHeight())
-
-			// Enforce minimum size
-			if newWidth < minWidth || newHeight < minHeight {
-				rl.SetWindowSize(
-					max(newWidth, minWidth),
-					max(newHeight, minHeight),
-				)
-				continue
-			}
-
-			// Update dimensions
-			core.SCREEN_WIDTH = newWidth
-			core.SCREEN_HEIGHT = newHeight
-
-		}
 		rl.DrawFPS(20, 20)
 		draw_debug_stats()
+
 		// Draw frame
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.DarkGray)
+		//Draw your triangles here
 
 		rl.EndDrawing()
 	}
 }
 
-func Update_title() {
-	// Updating title affects the frame rate, why?
-	fps := rl.GetFPS()
-	rl.SetWindowTitle(fmt.Sprintf("Gopher Engine - FPS: %d", fps))
+func handleKeyboardEvents(scene *core.Scene) {
+	moveSpeed := 0.1
+	rotateSpeed := 0.02
+
+	// Forward and backward
+	if rl.IsKeyDown(rl.KeyW) {
+		forward := scene.Camera.Transform.GetForward().Multiply(moveSpeed)
+		scene.Camera.Transform.Translate(forward)
+	}
+	if rl.IsKeyDown(rl.KeyS) {
+		backward := scene.Camera.Transform.GetForward().Multiply(-moveSpeed)
+		scene.Camera.Transform.Translate(backward)
+	}
+
+	// Left and right
+	if rl.IsKeyDown(rl.KeyA) {
+		left := scene.Camera.Transform.GetRight().Multiply(-moveSpeed)
+		scene.Camera.Transform.Translate(left)
+	}
+	if rl.IsKeyDown(rl.KeyD) {
+		right := scene.Camera.Transform.GetRight().Multiply(moveSpeed)
+		scene.Camera.Transform.Translate(right)
+	}
+
+	if rl.IsKeyDown(rl.KeyQ) {
+		scene.Camera.FocalLength--
+	}
+	if rl.IsKeyDown(rl.KeyE) {
+		scene.Camera.FocalLength++
+	}
+
+	if rl.IsKeyDown(rl.KeyRight) {
+		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
+	}
+	if rl.IsKeyDown(rl.KeyLeft) {
+		scene.Camera.Transform.Rotate(nomath.Vec3{Y: rotateSpeed})
+	}
+}
+
+func handleMouseEvents(scene *core.Scene) {
+	mousePos := rl.GetMousePosition()
+
+	if isFirstFrame {
+		lastMousePos = mousePos
+		isFirstFrame = false
+		return
+	}
+
+	delta := rl.Vector2Subtract(mousePos, lastMousePos)
+
+	// --- Middle mouse pan ---
+	if rl.IsMouseButtonDown(rl.MouseMiddleButton) {
+		panSpeed := 0.005
+		right := scene.Camera.Transform.GetRight().Multiply(float64(-delta.X) * panSpeed)
+		up := scene.Camera.Transform.GetUp().Multiply(float64(delta.Y) * panSpeed)
+		pan := right.Add(up)
+		scene.Camera.Transform.Translate(pan)
+	}
+
+	// --- Scroll to zoom ---
+	scroll := rl.GetMouseWheelMove()
+	if scroll != 0 {
+		zoomSpeed := 1.0
+		forward := scene.Camera.Transform.GetForward().Multiply(float64(scroll) * zoomSpeed)
+		scene.Camera.Transform.Translate(forward)
+	}
+
+	// --- Left drag to rotate around Y axis ---
+	if rl.IsMouseButtonDown(rl.MouseLeftButton) {
+		rotationSpeed := 0.002
+		angle := -float64(delta.X) * rotationSpeed
+		scene.Camera.Transform.Rotate(nomath.Vec3{Y: angle})
+	}
+
+	lastMousePos = mousePos
 }
 
 func draw_debug_stats() {

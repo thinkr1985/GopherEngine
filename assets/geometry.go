@@ -24,6 +24,11 @@ func (g *Geometry) NewGeometry() *Geometry {
 	return geo
 }
 
+func (g *Geometry) Update() {
+	g.Transform.UpdateModelMatrix()
+	g.ComputeTransformedBoundingBox()
+}
+
 func (g *Geometry) ComputeBoundingBox() {
 	if len(g.Vertices) == 0 {
 		return
