@@ -1,13 +1,12 @@
 package gui
 
 import (
+	"GopherEngine/core"
 	"fmt"
 	"image"
 	"image/color"
 	_ "math"
 	"unsafe"
-
-	"GopherEngine/core"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -15,7 +14,7 @@ import (
 var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
 
-func Window(getImage func() *image.RGBA) {
+func Window(getImage func() *image.RGBA, scene *core.Scene) {
 	minWidth := 300
 	minHeight := 200
 	// rl.SetConfigFlags(rl.FlagMsaa4xHint) // 4X anti-aliasing .. can reduce FPS.
@@ -75,7 +74,7 @@ func Window(getImage func() *image.RGBA) {
 	}
 }
 
-func update_title() {
+func Update_title() {
 	// Updating title affects the frame rate, why?
 	fps := rl.GetFPS()
 	rl.SetWindowTitle(fmt.Sprintf("Gopher Engine - FPS: %d", fps))
