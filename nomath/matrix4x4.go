@@ -172,3 +172,12 @@ func (m Mat4) ToEulerAnglesYXZ() Vec3 {
 
 	return angles
 }
+
+// func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
+// 	return Vec4{
+// 		X: m[0]*v.X + m[1]*v.Y + m[2]*v.Z + m[3]*v.W,
+// 		Y: m[4]*v.X + m[5]*v.Y + m[6]*v.Z + m[7]*v.W,
+// 		Z: m[8]*v.X + m[9]*v.Y + m[10]*v.Z + m[11]*v.W,
+// 		W: m[12]*v.X + m[13]*v.Y + m[14]*v.Z + m[15]*v.W,
+// 	}
+// }

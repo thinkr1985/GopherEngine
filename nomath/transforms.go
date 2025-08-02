@@ -23,6 +23,11 @@ func NewTransform() *Transform {
 	}
 }
 
+func (t *Transform) GetMatrix() Mat4 {
+	t.UpdateModelMatrix()
+	return t.ModelMatrix
+}
+
 // SetPosition sets the position
 func (t *Transform) SetPosition(pos Vec3) {
 	if !t.Position.Equals(pos) {
