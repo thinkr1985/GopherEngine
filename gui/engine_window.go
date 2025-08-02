@@ -13,16 +13,24 @@ import (
 )
 
 var engine_icon_path = "sources/go_engine_ico.png"
+var debugFont rl.Font
 
 func Window(getImage func() *image.RGBA) {
 	minWidth := 300
 	minHeight := 200
-	rl.SetConfigFlags(rl.FlagWindowResizable | rl.FlagMsaa4xHint)
+	// rl.SetConfigFlags(rl.FlagMsaa4xHint) // 4X anti-aliasing .. can reduce FPS.
+	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 	defer rl.CloseWindow()
+
+	debugFont = rl.LoadFontEx("fonts/CONSOLA.TTF", 12, nil, 0)
+	defer rl.UnloadFont(debugFont)
+
 	icon := rl.LoadImage(engine_icon_path)
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
+
+	rl.SetTargetFPS(0) // uncapped
 
 	img := getImage()
 	rgbaSlice := convertToColorRGBASlice(img)
@@ -57,16 +65,27 @@ func Window(getImage func() *image.RGBA) {
 			core.SCREEN_HEIGHT = newHeight
 
 		}
-
+		rl.DrawFPS(20, 20)
+		draw_debug_stats()
 		// Draw frame
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.DarkGray)
 
-		fps := rl.GetFPS()
-		rl.SetWindowTitle(fmt.Sprintf("Gopher Engine - FPS: %d", fps))
-
 		rl.EndDrawing()
 	}
+}
+
+func update_title() {
+	// Updating title affects the frame rate, why?
+	fps := rl.GetFPS()
+	rl.SetWindowTitle(fmt.Sprintf("Gopher Engine - FPS: %d", fps))
+}
+
+func draw_debug_stats() {
+	statsText := core.GetMachineStats()
+	textWidth := rl.MeasureText(statsText, 12)
+	rl.DrawRectangle(10, 10, textWidth+80, 80, rl.NewColor(0, 0, 0, 60))
+	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 }
 
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
