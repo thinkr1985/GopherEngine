@@ -1,8 +1,8 @@
 package core
 
 import (
+	"GopherEngine/nomath"
 	"math"
-	"software_renderer/nomath"
 )
 
 // Transform represents position, rotation (Euler angles), and scale in 3D space
