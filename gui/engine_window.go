@@ -15,6 +15,27 @@ var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
 var lastMousePos rl.Vector2
 var isFirstFrame = true
+var currentKeyboardImage string = "default"
+
+func generateKeybaordTextureMap() map[string]rl.Texture2D {
+	keyboardTextures := map[string]rl.Texture2D{
+		"default":     rl.LoadTexture("sources/keyboard.png"),
+		"W":           rl.LoadTexture("sources/W_pressed.png"),
+		"A":           rl.LoadTexture("sources/A_pressed.png"),
+		"S":           rl.LoadTexture("sources/S_pressed.png"),
+		"D":           rl.LoadTexture("sources/D_pressed.png"),
+		"E":           rl.LoadTexture("sources/E_pressed.png"),
+		"Q":           rl.LoadTexture("sources/Q_pressed.png"),
+		"arrowRight":  rl.LoadTexture("sources/Right_Arrow_pressed.png"),
+		"arrowLeft":   rl.LoadTexture("sources/Left_Arrow_pressed.png"),
+		"middleMouse": rl.LoadTexture("sources/scroll.png"),
+		"leftMouse":   rl.LoadTexture("sources/left_mouse_clicked.png"),
+		"rightMouse":  rl.LoadTexture("sources/right_mouse_clicked.png"),
+		"scroll":      rl.LoadTexture("sources/scroll.png"),
+	}
+
+	return keyboardTextures
+}
 
 func initWindow() {
 
@@ -74,6 +95,13 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 	defer rl.UnloadFont(debugFont)
 	defer rl.UnloadTexture(tex)
 
+	keyboardTextures := generateKeybaordTextureMap()
+	defer func() {
+		for _, tex := range keyboardTextures {
+			rl.UnloadTexture(tex)
+		}
+	}()
+
 	// window render loop
 	for !rl.WindowShouldClose() {
 		handleWindowResize()
@@ -87,7 +115,8 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.DarkGray)
 		//Draw your triangles here
-
+		// Draw keyboard overlay
+		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
 		rl.EndDrawing()
 	}
 }
@@ -95,39 +124,48 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 func handleKeyboardEvents(scene *core.Scene) {
 	moveSpeed := 0.1
 	rotateSpeed := 0.02
+	currentKeyboardImage = "default" // reset every frame
 
 	// Forward and backward
 	if rl.IsKeyDown(rl.KeyW) {
 		forward := scene.Camera.Transform.GetForward().Multiply(moveSpeed)
 		scene.Camera.Transform.Translate(forward)
+		currentKeyboardImage = "W"
 	}
 	if rl.IsKeyDown(rl.KeyS) {
 		backward := scene.Camera.Transform.GetForward().Multiply(-moveSpeed)
 		scene.Camera.Transform.Translate(backward)
+		currentKeyboardImage = "S"
 	}
 
 	// Left and right
 	if rl.IsKeyDown(rl.KeyA) {
 		left := scene.Camera.Transform.GetRight().Multiply(-moveSpeed)
 		scene.Camera.Transform.Translate(left)
+		currentKeyboardImage = "A"
 	}
 	if rl.IsKeyDown(rl.KeyD) {
 		right := scene.Camera.Transform.GetRight().Multiply(moveSpeed)
 		scene.Camera.Transform.Translate(right)
+		currentKeyboardImage = "D"
 	}
 
 	if rl.IsKeyDown(rl.KeyQ) {
 		scene.Camera.FocalLength--
+		currentKeyboardImage = "Q"
 	}
 	if rl.IsKeyDown(rl.KeyE) {
 		scene.Camera.FocalLength++
+		currentKeyboardImage = "E"
 	}
 
 	if rl.IsKeyDown(rl.KeyRight) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
+		currentKeyboardImage = "arrowRight"
 	}
 	if rl.IsKeyDown(rl.KeyLeft) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: rotateSpeed})
+		currentKeyboardImage = "arrowLeft"
 	}
 }
 
@@ -149,6 +187,7 @@ func handleMouseEvents(scene *core.Scene) {
 		up := scene.Camera.Transform.GetUp().Multiply(float64(delta.Y) * panSpeed)
 		pan := right.Add(up)
 		scene.Camera.Transform.Translate(pan)
+		currentKeyboardImage = "scroll"
 	}
 
 	// --- Scroll to zoom ---
@@ -157,6 +196,7 @@ func handleMouseEvents(scene *core.Scene) {
 		zoomSpeed := 1.0
 		forward := scene.Camera.Transform.GetForward().Multiply(float64(scroll) * zoomSpeed)
 		scene.Camera.Transform.Translate(forward)
+		currentKeyboardImage = "scroll"
 	}
 
 	// --- Left drag to rotate around Y axis ---
@@ -164,6 +204,11 @@ func handleMouseEvents(scene *core.Scene) {
 		rotationSpeed := 0.002
 		angle := -float64(delta.X) * rotationSpeed
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: angle})
+		currentKeyboardImage = "leftMouse"
+	}
+	if rl.IsMouseButtonDown(rl.MouseRightButton) {
+
+		currentKeyboardImage = "rightMouse"
 	}
 
 	lastMousePos = mousePos
@@ -174,6 +219,12 @@ func draw_debug_stats() {
 	textWidth := rl.MeasureText(statsText, 12)
 	rl.DrawRectangle(10, 10, textWidth+80, 80, rl.NewColor(0, 0, 0, 60))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
+}
+
+func drawKeyboardOverlay(tex rl.Texture2D) {
+	x := 20
+	y := rl.GetScreenHeight() - int(tex.Height) - 20
+	rl.DrawTexture(tex, int32(x), int32(y), rl.White)
 }
 
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
