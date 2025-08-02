@@ -45,7 +45,6 @@ func (v Vec4) EqualsEpsilon(other Vec4, epsilon float64) bool {
 		math.Abs(v.W-other.W) < epsilon
 }
 
-// ToVec4 converts a Vec3 to a Vec4 with the given w component (commonly 1.0 for position, 0.0 for direction)
 func (v Vec3) ToVec4(w float64) Vec4 {
 	return Vec4{X: v.X, Y: v.Y, Z: v.Z, W: w}
 }

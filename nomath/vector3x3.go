@@ -79,3 +79,39 @@ func (v Vec3) EqualsEpsilon(other Vec3, epsilon float64) bool {
 		math.Abs(v.Y-other.Y) < epsilon &&
 		math.Abs(v.Z-other.Z) < epsilon
 }
+
+// Min returns the component-wise minimum of two Vec3s
+func (v Vec3) Min(a, b Vec3) Vec3 {
+	return Vec3{
+		X: math.Min(a.X, b.X),
+		Y: math.Min(a.Y, b.Y),
+		Z: math.Min(a.Z, b.Z),
+	}
+}
+
+// Max returns the component-wise maximum of two Vec3s
+func (v Vec3) Max(a, b Vec3) Vec3 {
+	return Vec3{
+		X: math.Max(a.X, b.X),
+		Y: math.Max(a.Y, b.Y),
+		Z: math.Max(a.Z, b.Z),
+	}
+}
+
+// Min returns the component-wise minimum of two vectors
+func Min(a, b Vec3) Vec3 {
+	return Vec3{
+		X: math.Min(a.X, b.X),
+		Y: math.Min(a.Y, b.Y),
+		Z: math.Min(a.Z, b.Z),
+	}
+}
+
+// Max returns the component-wise maximum of two vectors
+func Max(a, b Vec3) Vec3 {
+	return Vec3{
+		X: math.Max(a.X, b.X),
+		Y: math.Max(a.Y, b.Y),
+		Z: math.Max(a.Z, b.Z),
+	}
+}
