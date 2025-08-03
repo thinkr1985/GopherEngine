@@ -48,3 +48,39 @@ func (v Vec4) EqualsEpsilon(other Vec4, epsilon float64) bool {
 func (v Vec3) ToVec4(w float64) Vec4 {
 	return Vec4{X: v.X, Y: v.Y, Z: v.Z, W: w}
 }
+
+// Add to your vector4x4.go file
+func (v Vec4) Normalize() Vec4 {
+	// For plane normalization, we only care about XYZ components
+	xyzLength := math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
+	if xyzLength > 0 {
+		invLength := 1.0 / xyzLength
+		return Vec4{
+			X: v.X * invLength,
+			Y: v.Y * invLength,
+			Z: v.Z * invLength,
+			W: v.W * invLength, // Also normalize W for consistency
+		}
+	}
+	return v
+}
+
+// Optimized version specifically for frustum planes
+func (v Vec4) NormalizePlane() Vec4 {
+	// Special normalization for plane equations (where W is distance)
+	xyzLength := math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
+	if xyzLength > 0 {
+		invLength := 1.0 / xyzLength
+		return Vec4{
+			X: v.X * invLength,
+			Y: v.Y * invLength,
+			Z: v.Z * invLength,
+			W: v.W * invLength, // Important: normalize distance too!
+		}
+	}
+	return v
+}
+
+func (v Vec4) Length() float64 {
+	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z + v.W*v.W)
+}

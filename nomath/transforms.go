@@ -76,20 +76,19 @@ func (t *Transform) Rotate(rotation Vec3) {
 	t.Rotation.Z = wrapAngle(t.Rotation.Z)
 	t.Dirty = true
 }
-
-// GetForward returns the forward vector (Z+)
 func (t *Transform) GetForward() Vec3 {
-	return t.getDirectionFromRotation(0, 0, 1)
+	// In a right-handed system, negative Z is forward (common in graphics)
+	return t.getDirectionFromRotation(0, 0, -1).Normalize()
 }
 
-// GetUp returns the up vector (Y+)
-func (t *Transform) GetUp() Vec3 {
-	return t.getDirectionFromRotation(0, 1, 0)
-}
-
-// GetRight returns the right vector (X-)
 func (t *Transform) GetRight() Vec3 {
-	return t.getDirectionFromRotation(-1, 0, 0)
+	// X+ is right
+	return t.getDirectionFromRotation(1, 0, 0).Normalize()
+}
+
+func (t *Transform) GetUp() Vec3 {
+	// Y+ is up
+	return t.getDirectionFromRotation(0, 1, 0).Normalize()
 }
 
 // getDirectionFromRotation calculates a direction vector from rotation

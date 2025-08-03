@@ -71,31 +71,6 @@ func RotationZMatrix(angle float64) Mat4 {
 	}
 }
 
-// MultiplyVec4 multiplies a vector by a matrix
-func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
-	return Vec4{
-		X: v.X*m[0] + v.Y*m[4] + v.Z*m[8] + v.W*m[12],
-		Y: v.X*m[1] + v.Y*m[5] + v.Z*m[9] + v.W*m[13],
-		Z: v.X*m[2] + v.Y*m[6] + v.Z*m[10] + v.W*m[14],
-		W: v.X*m[3] + v.Y*m[7] + v.Z*m[11] + v.W*m[15],
-	}
-}
-
-// Multiply multiplies two matrices
-func (m Mat4) Multiply(other Mat4) Mat4 {
-	var result Mat4
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
-			sum := 0.0
-			for k := 0; k < 4; k++ {
-				sum += m[i+k*4] * other[k+j*4]
-			}
-			result[i+j*4] = sum
-		}
-	}
-	return result
-}
-
 // Inverse returns the inverse of the matrix.
 // If the matrix is non-invertible, it returns the identity matrix.
 func (m Mat4) Inverse() Mat4 {
@@ -173,11 +148,37 @@ func (m Mat4) ToEulerAnglesYXZ() Vec3 {
 	return angles
 }
 
-// func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
-// 	return Vec4{
-// 		X: m[0]*v.X + m[1]*v.Y + m[2]*v.Z + m[3]*v.W,
-// 		Y: m[4]*v.X + m[5]*v.Y + m[6]*v.Z + m[7]*v.W,
-// 		Z: m[8]*v.X + m[9]*v.Y + m[10]*v.Z + m[11]*v.W,
-// 		W: m[12]*v.X + m[13]*v.Y + m[14]*v.Z + m[15]*v.W,
-// 	}
-// }
+// Multiply optimized version (unrolled loops where possible)
+func (m Mat4) Multiply(other Mat4) Mat4 {
+	return Mat4{
+		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
+		m[1]*other[0] + m[5]*other[1] + m[9]*other[2] + m[13]*other[3],
+		m[2]*other[0] + m[6]*other[1] + m[10]*other[2] + m[14]*other[3],
+		m[3]*other[0] + m[7]*other[1] + m[11]*other[2] + m[15]*other[3],
+
+		m[0]*other[4] + m[4]*other[5] + m[8]*other[6] + m[12]*other[7],
+		m[1]*other[4] + m[5]*other[5] + m[9]*other[6] + m[13]*other[7],
+		m[2]*other[4] + m[6]*other[5] + m[10]*other[6] + m[14]*other[7],
+		m[3]*other[4] + m[7]*other[5] + m[11]*other[6] + m[15]*other[7],
+
+		m[0]*other[8] + m[4]*other[9] + m[8]*other[10] + m[12]*other[11],
+		m[1]*other[8] + m[5]*other[9] + m[9]*other[10] + m[13]*other[11],
+		m[2]*other[8] + m[6]*other[9] + m[10]*other[10] + m[14]*other[11],
+		m[3]*other[8] + m[7]*other[9] + m[11]*other[10] + m[15]*other[11],
+
+		m[0]*other[12] + m[4]*other[13] + m[8]*other[14] + m[12]*other[15],
+		m[1]*other[12] + m[5]*other[13] + m[9]*other[14] + m[13]*other[15],
+		m[2]*other[12] + m[6]*other[13] + m[10]*other[14] + m[14]*other[15],
+		m[3]*other[12] + m[7]*other[13] + m[11]*other[14] + m[15]*other[15],
+	}
+}
+
+// MultiplyVec4 optimized version (unrolled loops)
+func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
+	return Vec4{
+		X: v.X*m[0] + v.Y*m[4] + v.Z*m[8] + v.W*m[12],
+		Y: v.X*m[1] + v.Y*m[5] + v.Z*m[9] + v.W*m[13],
+		Z: v.X*m[2] + v.Y*m[6] + v.Z*m[10] + v.W*m[14],
+		W: v.X*m[3] + v.Y*m[7] + v.Z*m[11] + v.W*m[15],
+	}
+}

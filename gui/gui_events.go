@@ -35,46 +35,50 @@ func generateKeybaordTextureMap() map[string]rl.Texture2D {
 
 func HandleInputEvents(scene *core.Scene) {
 	currentKeyboardImage = "default" // reset every frame
-	HandleKeyboardEvents(scene)
-	HandleMouseEvents(scene)
+
+	// Check if window is focused before handling input
+	if !rl.IsWindowFocused() {
+		return
+	}
+
+	// Handle events with proper checks
+	if rl.IsWindowReady() {
+		HandleKeyboardEvents(scene)
+		HandleMouseEvents(scene)
+	}
 }
 
 func HandleKeyboardEvents(scene *core.Scene) {
-	moveSpeed := 0.1
+	moveSpeed := 1.5 // Never use value below 1.0
 	rotateSpeed := 0.02
 
-	// Forward and backward
+	// Get camera vectors (note these are in world space)
+	forward := scene.Camera.Transform.GetForward() // Points toward camera's view direction
+	right := scene.Camera.Transform.GetRight()     // Points to camera's right
+
+	// Movement controls - FINAL CORRECT VERSION
 	if rl.IsKeyDown(rl.KeyW) {
-		forward := scene.Camera.Transform.GetForward().Multiply(moveSpeed)
-		scene.Camera.Transform.Translate(forward)
+		// Move in camera's forward direction (use positive forward vector)
+		scene.Camera.Transform.Translate(forward.Multiply(moveSpeed))
 		currentKeyboardImage = "W"
 	}
 	if rl.IsKeyDown(rl.KeyS) {
-		backward := scene.Camera.Transform.GetForward().Multiply(-moveSpeed)
-		scene.Camera.Transform.Translate(backward)
+		// Move in camera's backward direction
+		scene.Camera.Transform.Translate(forward.Multiply(-moveSpeed))
 		currentKeyboardImage = "S"
 	}
-
 	if rl.IsKeyDown(rl.KeyA) {
-		left := scene.Camera.Transform.GetRight().Multiply(-moveSpeed)
-		scene.Camera.Transform.Translate(left)
+		// Move left (negative right vector)
+		scene.Camera.Transform.Translate(right.Multiply(-moveSpeed))
 		currentKeyboardImage = "A"
 	}
 	if rl.IsKeyDown(rl.KeyD) {
-		right := scene.Camera.Transform.GetRight().Multiply(moveSpeed)
-		scene.Camera.Transform.Translate(right)
+		// Move right (positive right vector)
+		scene.Camera.Transform.Translate(right.Multiply(moveSpeed))
 		currentKeyboardImage = "D"
 	}
 
-	if rl.IsKeyDown(rl.KeyQ) {
-		scene.Camera.FocalLength--
-		currentKeyboardImage = "Q"
-	}
-	if rl.IsKeyDown(rl.KeyE) {
-		scene.Camera.FocalLength++
-		currentKeyboardImage = "E"
-	}
-
+	// Rotation controls (unchanged)
 	if rl.IsKeyDown(rl.KeyRight) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
 		currentKeyboardImage = "arrowRight"
@@ -92,6 +96,7 @@ func HandleKeyboardEvents(scene *core.Scene) {
 	if rl.IsKeyDown(rl.KeySpace) {
 		currentKeyboardImage = "space"
 	}
+
 }
 
 func HandleMouseEvents(scene *core.Scene) {
@@ -107,7 +112,7 @@ func HandleMouseEvents(scene *core.Scene) {
 
 	// --- Middle mouse pan ---
 	if rl.IsMouseButtonDown(rl.MouseMiddleButton) {
-		panSpeed := 0.005
+		panSpeed := 0.05
 		right := scene.Camera.Transform.GetRight().Multiply(float64(-delta.X) * panSpeed)
 		up := scene.Camera.Transform.GetUp().Multiply(float64(delta.Y) * panSpeed)
 		pan := right.Add(up)
@@ -137,4 +142,29 @@ func HandleMouseEvents(scene *core.Scene) {
 	}
 
 	lastMousePos = mousePos
+}
+
+func handleWindowResize(scene *core.Scene) {
+	if !rl.IsWindowReady() {
+		return
+	}
+	if rl.IsWindowResized() {
+		newWidth := max(300, int(rl.GetScreenWidth()))
+		newHeight := max(200, int(rl.GetScreenHeight()))
+
+		// Only resize if dimensions actually changed
+		if newWidth != core.SCREEN_WIDTH || newHeight != core.SCREEN_HEIGHT {
+			core.SCREEN_WIDTH = newWidth
+			core.SCREEN_HEIGHT = newHeight
+
+			// Resize render buffers
+			scene.Renderer.Resize(newWidth, newHeight)
+
+			// Update camera projection
+			scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
+				float64(newWidth) / float64(core.SCREEN_WIDTH))
+			scene.Camera.Transform.UpdateModelMatrix()
+			scene.Camera.UpdateFrustumPlanes()
+		}
+	}
 }

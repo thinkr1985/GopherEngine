@@ -2,6 +2,7 @@ package gui
 
 import (
 	"GopherEngine/core"
+	"GopherEngine/lookdev"
 	"image"
 	"image/color"
 	_ "math"
@@ -26,51 +27,14 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(0) // uncapped
+	rl.SetTargetFPS(120) // uncapped
 
 }
 
-func loadTexture(getImage func() *image.RGBA) rl.Texture2D {
-	img := getImage()
-	rgbaSlice := convertToColorRGBASlice(img)
-	rlImg := rl.Image{
-		Data:    unsafe.Pointer(&rgbaSlice[0]),
-		Width:   int32(img.Bounds().Dx()),
-		Height:  int32(img.Bounds().Dy()),
-		Mipmaps: 1,
-		Format:  rl.UncompressedR8g8b8a8,
-	}
-	return rl.LoadTextureFromImage(&rlImg)
-}
-
-func handleWindowResize() {
-	minWidth := 300
-	minHeight := 200
-	if rl.IsWindowResized() {
-		newWidth := int(rl.GetScreenWidth())
-		newHeight := int(rl.GetScreenHeight())
-
-		// Enforce minimum size
-		if newWidth < minWidth || newHeight < minHeight {
-			rl.SetWindowSize(
-				max(newWidth, minWidth),
-				max(newHeight, minHeight),
-			)
-		}
-
-		// Update dimensions
-		core.SCREEN_WIDTH = newWidth
-		core.SCREEN_HEIGHT = newHeight
-
-	}
-}
-
-func Window(getImage func() *image.RGBA, scene *core.Scene) {
+func Window(scene *core.Scene) {
 	initWindow()
-	tex := loadTexture(getImage)
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
-	defer rl.UnloadTexture(tex)
 
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
@@ -79,19 +43,60 @@ func Window(getImage func() *image.RGBA, scene *core.Scene) {
 		}
 	}()
 
-	// window render loop
+	// Declare texture variable at function scope
+	var tex rl.Texture2D
+	defer rl.UnloadTexture(tex)
+
 	for !rl.WindowShouldClose() {
-		handleWindowResize()
+		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
+		// Clear to red (should be visible now)
+		scene.Renderer.Clear(lookdev.ColorRGBA{R: 60, G: 73, B: 78, A: 1.0})
+
+		// Draw 3D content
+		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
+		scene.Grid.Draw(scene.Renderer, scene.Camera)
+		scene.RenderScene()
+
+		// Get the rendered image
+		renderedImage := scene.Renderer.ToImage()
+
+		// Debug check
+		if renderedImage.Bounds().Empty() {
+			panic("Renderer produced empty image!")
+		}
+
+		// Convert to raylib texture format
+		rgbaSlice := convertToColorRGBASlice(renderedImage)
+		rlImg := rl.Image{
+			Data:    unsafe.Pointer(&rgbaSlice[0]),
+			Width:   int32(renderedImage.Bounds().Dx()),
+			Height:  int32(renderedImage.Bounds().Dy()),
+			Mipmaps: 1,
+			Format:  rl.UncompressedR8g8b8a8,
+		}
+
+		// Unload previous texture if it exists
+		if tex.ID != 0 {
+			rl.UnloadTexture(tex)
+		}
+
+		// Load new texture
+		tex = rl.LoadTextureFromImage(&rlImg)
+
+		// Begin drawing
+		rl.BeginDrawing()
+		// rl.ClearBackground(rl.Black) // Window clear
+
+		// Draw our rendered texture
+		rl.DrawTexture(tex, 0, 0, rl.White)
+
+		// Draw UI elements
 		rl.DrawFPS(20, 20)
 		draw_debug_stats()
-		// Draw frame
-		rl.BeginDrawing()
-		rl.ClearBackground(rl.DarkGray)
-		//Draw your triangles here
-		// Draw keyboard overlay
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
+
 		rl.EndDrawing()
 	}
 }
@@ -114,22 +119,19 @@ func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
 	w, h := bounds.Dx(), bounds.Dy()
 	pixels := make([]color.RGBA, w*h)
 
-	i := 0
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, a := img.At(x, y).RGBA()
-			pixels[i] = color.RGBA{
+			pixels[y*w+x] = color.RGBA{
 				R: uint8(r >> 8),
 				G: uint8(g >> 8),
 				B: uint8(b >> 8),
 				A: uint8(a >> 8),
 			}
-			i++
 		}
 	}
 	return pixels
 }
-
 func max(a, b int) int {
 	if a > b {
 		return a
