@@ -17,7 +17,14 @@ type Scene struct {
 	Lights         []*Light
 	Triangles      []*assets.Triangle
 	DrawnTriangles int32
-	HalfResolution bool
+	// Resolution scaling settings
+	ResolutionScale    float64 // Current scale (1.0 = full, 0.5 = half, etc.)
+	AutoResolution     bool    // Whether auto-scaling is enabled
+	LastFPS            int     // Track last FPS reading
+	MinResolutionScale float64 // Minimum allowed resolution (e.g., 0.1 for 10%)
+	LastScaleChange    float64 // Time since last resolution change (now float64)
+	FPSHistory         []int   // Store last few FPS readings for smoothing
+	FPSSum             int     // Sum of FPS history for averaging
 }
 
 func NewScene() *Scene {
@@ -27,6 +34,13 @@ func NewScene() *Scene {
 		DefaultLight: NewPointLight(),
 		ViewAxes:     NewViewAxes(),
 		Grid:         NewGrid(),
+
+		// Resolution scaling defaults
+		ResolutionScale:    1.0,
+		AutoResolution:     false,
+		LastScaleChange:    0.0, // Initialize as float64
+		MinResolutionScale: 0.1, // Never go below 10%
+		FPSHistory:         make([]int, 0, 10),
 	}
 }
 

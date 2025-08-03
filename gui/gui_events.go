@@ -41,8 +41,11 @@ func HandleInputEvents(scene *core.Scene) {
 	}
 
 	if rl.IsKeyPressed(rl.KeyF1) {
-		scene.HalfResolution = !scene.HalfResolution
-		// Force immediate resize
+		scene.AutoResolution = !scene.AutoResolution
+		if !scene.AutoResolution {
+			// Reset to full resolution when turning off auto-scaling
+			scene.ResolutionScale = 1.0
+		}
 		handleWindowResize(scene)
 	}
 
@@ -147,7 +150,6 @@ func HandleMouseEvents(scene *core.Scene) {
 
 	lastMousePos = mousePos
 }
-
 func handleWindowResize(scene *core.Scene) {
 	if !rl.IsWindowReady() {
 		return
@@ -160,13 +162,9 @@ func handleWindowResize(scene *core.Scene) {
 	core.SCREEN_WIDTH = newWidth
 	core.SCREEN_HEIGHT = newHeight
 
-	// Calculate render dimensions based on half-resolution setting
-	renderWidth := newWidth
-	renderHeight := newHeight
-	if scene.HalfResolution {
-		renderWidth = newWidth / 2
-		renderHeight = newHeight / 2
-	}
+	// Calculate render dimensions based on resolution scale
+	renderWidth := int(float64(newWidth) * scene.ResolutionScale)
+	renderHeight := int(float64(newHeight) * scene.ResolutionScale)
 
 	// Ensure minimum size
 	renderWidth = max(1, renderWidth)

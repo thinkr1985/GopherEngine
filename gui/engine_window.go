@@ -3,9 +3,10 @@ package gui
 import (
 	"GopherEngine/core"
 	"GopherEngine/lookdev"
+	"fmt"
 	"image"
 	"image/color"
-	_ "math"
+	"math"
 	"unsafe"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -33,6 +34,14 @@ func Window(scene *core.Scene) {
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
+	// Initialize resolution scaling with proper types
+	scene.ResolutionScale = 1.0
+	scene.AutoResolution = false
+	scene.LastFPS = 60
+	scene.MinResolutionScale = 0.1
+	scene.LastScaleChange = rl.GetTime() // Initialize with current time
+	scene.FPSHistory = make([]int, 0, 10)
+
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
 		for _, tex := range keyboardTextures {
@@ -53,6 +62,26 @@ func Window(scene *core.Scene) {
 	rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
+		currentTime := rl.GetTime() // float64
+		currentFPS := rl.GetFPS()   // int
+
+		// Update FPS history for smoothing
+		if len(scene.FPSHistory) >= 10 {
+			scene.FPSSum -= scene.FPSHistory[0]
+			scene.FPSHistory = scene.FPSHistory[1:]
+		}
+		scene.FPSHistory = append(scene.FPSHistory, int(currentFPS))
+		scene.FPSSum += int(currentFPS)
+
+		// Auto-resolution scaling logic
+		if scene.AutoResolution {
+			// Only check every 0.5 seconds (cooldown period)
+			if currentTime-scene.LastScaleChange > 0.5 {
+				smoothedFPS := scene.FPSSum / len(scene.FPSHistory)
+				adjustResolutionBasedOnFPS(scene, smoothedFPS, currentTime)
+			}
+		}
+
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
@@ -102,18 +131,72 @@ func Window(scene *core.Scene) {
 		)
 		// Draw UI elements (always at full resolution)
 		rl.DrawFPS(20, 20)
-		draw_debug_stats()
+		draw_debug_stats(scene)
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
 
 		rl.EndDrawing()
 	}
 }
 
-func draw_debug_stats() {
-	statsText := core.GetMachineStats()
+func adjustResolutionBasedOnFPS(scene *core.Scene, currentFPS int, currentTime float64) {
+	var newScale float64
+
+	// Determine target scale based on FPS ranges
+	switch {
+	case currentFPS < 15 && currentFPS > 5:
+		newScale = 0.25 // 25% resolution
+	case currentFPS < 25 && currentFPS > 15:
+		newScale = 0.5 // 50% resolution
+	case currentFPS < 35 && currentFPS > 25:
+		newScale = 0.75 // 75% resolution
+	case currentFPS >= 35:
+		newScale = 1.0 // Full resolution
+	default: // Below 5 FPS - emergency reduction
+		newScale = scene.MinResolutionScale
+	}
+
+	// Apply minimum resolution limit
+	if newScale < scene.MinResolutionScale {
+		newScale = scene.MinResolutionScale
+	}
+
+	// Only change if difference is significant (>10%) and cooldown has passed
+	if math.Abs(newScale-scene.ResolutionScale) > 0.1 {
+		scene.ResolutionScale = newScale
+		scene.LastScaleChange = currentTime
+		// Resize will happen in next handleWindowResize call
+	}
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+func draw_debug_stats(scene *core.Scene) {
+	avgFPS := 0
+	if len(scene.FPSHistory) > 0 {
+		avgFPS = scene.FPSSum / len(scene.FPSHistory)
+	}
+
+	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%%\nAuto-Res: %v",
+		core.GetMachineStats(),
+		rl.GetFPS(),
+		avgFPS,
+		scene.ResolutionScale*100,
+		scene.AutoResolution)
+
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+80, 80, rl.NewColor(0, 0, 0, 60))
+	rl.DrawRectangle(10, 10, textWidth+80, 120, rl.NewColor(0, 0, 0, 60))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
+
+	// Show cooldown status if in auto mode
+	if scene.AutoResolution {
+		cooldownLeft := math.Max(0, 0.5-(rl.GetTime()-scene.LastScaleChange))
+		cooldownText := fmt.Sprintf("Cooldown: %.1fs", cooldownLeft)
+		rl.DrawTextEx(debugFont, cooldownText, rl.NewVector2(20, 100), 12, 2, rl.LightGray)
+	}
 }
 
 func drawKeyboardOverlay(tex rl.Texture2D) {
