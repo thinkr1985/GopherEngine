@@ -18,13 +18,15 @@ type Scene struct {
 	Triangles      []*assets.Triangle
 	DrawnTriangles int32
 	// Resolution scaling settings
-	ResolutionScale    float64 // Current scale (1.0 = full, 0.5 = half, etc.)
-	AutoResolution     bool    // Whether auto-scaling is enabled
-	LastFPS            int     // Track last FPS reading
-	MinResolutionScale float64 // Minimum allowed resolution (e.g., 0.1 for 10%)
-	LastScaleChange    float64 // Time since last resolution change (now float64)
-	FPSHistory         []int   // Store last few FPS readings for smoothing
-	FPSSum             int     // Sum of FPS history for averaging
+	ResolutionScale       float64 // Current scale (1.0 = full, 0.5 = half, etc.)
+	AutoResolution        bool    // Whether auto-scaling is enabled
+	LastFPS               int     // Track last FPS reading
+	MinResolutionScale    float64 // Minimum allowed resolution (e.g., 0.1 for 10%)
+	LastScaleChange       float64 // Time since last resolution change (now float64)
+	FPSHistory            []int   // Store last few FPS readings for smoothing
+	FPSSum                int     // Sum of FPS history for averaging
+	TargetResolutionScale float64 // The scale we're gradually moving toward
+	ResolutionChangeSpeed float64 // How fast we adjust resolution (0.1 = 10% per second)
 }
 
 func NewScene() *Scene {
@@ -36,11 +38,13 @@ func NewScene() *Scene {
 		Grid:         NewGrid(),
 
 		// Resolution scaling defaults
-		ResolutionScale:    1.0,
-		AutoResolution:     false,
-		LastScaleChange:    0.0, // Initialize as float64
-		MinResolutionScale: 0.1, // Never go below 10%
-		FPSHistory:         make([]int, 0, 10),
+		ResolutionScale:       1.0,
+		AutoResolution:        false,
+		LastScaleChange:       0.0, // Initialize as float64
+		MinResolutionScale:    0.1, // Never go below 10%
+		FPSHistory:            make([]int, 0, 10),
+		TargetResolutionScale: 1.0,
+		ResolutionChangeSpeed: 0.25, // Adjust scale by up to 50% per second
 	}
 }
 

@@ -62,11 +62,12 @@ func Window(scene *core.Scene) {
 	rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
-		currentTime := rl.GetTime() // float64
-		currentFPS := rl.GetFPS()   // int
+		frameTime := rl.GetFrameTime() // Time since last frame in seconds
+		currentTime := rl.GetTime()
+		currentFPS := rl.GetFPS()
 
 		// Update FPS history for smoothing
-		if len(scene.FPSHistory) >= 10 {
+		if len(scene.FPSHistory) >= 120 {
 			scene.FPSSum -= scene.FPSHistory[0]
 			scene.FPSHistory = scene.FPSHistory[1:]
 		}
@@ -75,11 +76,14 @@ func Window(scene *core.Scene) {
 
 		// Auto-resolution scaling logic
 		if scene.AutoResolution {
-			// Only check every 0.5 seconds (cooldown period)
+			// Only update target scale every 0.5 seconds (cooldown period)
 			if currentTime-scene.LastScaleChange > 0.5 {
 				smoothedFPS := scene.FPSSum / len(scene.FPSHistory)
-				adjustResolutionBasedOnFPS(scene, smoothedFPS, currentTime)
+				updateTargetResolution(scene, smoothedFPS, currentTime)
 			}
+
+			// Gradually move toward target resolution
+			adjustResolutionGradually(scene, float64(frameTime))
 		}
 
 		handleWindowResize(scene)
@@ -137,35 +141,46 @@ func Window(scene *core.Scene) {
 		rl.EndDrawing()
 	}
 }
+func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {
+	// Calculate ideal scale based on FPS (inverse relationship)
+	// These values can be tweaked to get the desired behavior
+	minFPS := 15.0
+	maxFPS := 40.0
+	fpsRatio := math.Min(1.0, math.Max(0.0,
+		(float64(currentFPS)-minFPS)/(maxFPS-minFPS)))
 
-func adjustResolutionBasedOnFPS(scene *core.Scene, currentFPS int, currentTime float64) {
-	var newScale float64
+	// Map FPS ratio to resolution scale (quadratic easing for smoother transitions)
+	newTarget := scene.MinResolutionScale +
+		(1.0-scene.MinResolutionScale)*fpsRatio*fpsRatio
 
-	// Determine target scale based on FPS ranges
-	switch {
-	case currentFPS < 15 && currentFPS > 5:
-		newScale = 0.25 // 25% resolution
-	case currentFPS < 25 && currentFPS > 15:
-		newScale = 0.5 // 50% resolution
-	case currentFPS < 35 && currentFPS > 25:
-		newScale = 0.75 // 75% resolution
-	case currentFPS >= 35:
-		newScale = 1.0 // Full resolution
-	default: // Below 5 FPS - emergency reduction
-		newScale = scene.MinResolutionScale
-	}
-
-	// Apply minimum resolution limit
-	if newScale < scene.MinResolutionScale {
-		newScale = scene.MinResolutionScale
-	}
-
-	// Only change if difference is significant (>10%) and cooldown has passed
-	if math.Abs(newScale-scene.ResolutionScale) > 0.1 {
-		scene.ResolutionScale = newScale
+	// Only update target if significantly different
+	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.05 {
+		scene.TargetResolutionScale = newTarget
 		scene.LastScaleChange = currentTime
-		// Resize will happen in next handleWindowResize call
 	}
+}
+
+func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
+	// Calculate maximum allowed change this frame
+	maxChange := scene.ResolutionChangeSpeed * frameTime
+
+	if scene.ResolutionScale < scene.TargetResolutionScale {
+		// Move upward toward target
+		scene.ResolutionScale = math.Min(
+			scene.TargetResolutionScale,
+			scene.ResolutionScale+maxChange)
+	} else if scene.ResolutionScale > scene.TargetResolutionScale {
+		// Move downward toward target
+		scene.ResolutionScale = math.Max(
+			scene.TargetResolutionScale,
+			scene.ResolutionScale-maxChange)
+	}
+
+	// Ensure we stay within bounds
+	scene.ResolutionScale = math.Max(scene.MinResolutionScale,
+		math.Min(1.0, scene.ResolutionScale))
+
+	// Resize will happen in next handleWindowResize call
 }
 
 func abs(x int) int {
@@ -180,22 +195,22 @@ func draw_debug_stats(scene *core.Scene) {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
 	}
 
-	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%%\nAuto-Res: %v",
+	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v",
 		core.GetMachineStats(),
 		rl.GetFPS(),
 		avgFPS,
 		scene.ResolutionScale*100,
+		scene.TargetResolutionScale*100,
 		scene.AutoResolution)
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+80, 120, rl.NewColor(0, 0, 0, 60))
+	rl.DrawRectangle(10, 10, textWidth+80, 140, rl.NewColor(0, 0, 0, 60))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 
-	// Show cooldown status if in auto mode
+	// Show scaling info if in auto mode
 	if scene.AutoResolution {
-		cooldownLeft := math.Max(0, 0.5-(rl.GetTime()-scene.LastScaleChange))
-		cooldownText := fmt.Sprintf("Cooldown: %.1fs", cooldownLeft)
-		rl.DrawTextEx(debugFont, cooldownText, rl.NewVector2(20, 100), 12, 2, rl.LightGray)
+		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 130), 12, 2, rl.LightGray)
 	}
 }
 

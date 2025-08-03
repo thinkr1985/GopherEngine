@@ -1,7 +1,7 @@
 # GopherEngine
 A CPU rasterizer using GO language.
 
-# Featues
+# Features
  - Auto Resolution adjustment.
  - Inbuilt OBJ reader
 
