@@ -12,6 +12,8 @@ type Scene struct {
 	Objects        []*assets.Geometry
 	Camera         *PerspectiveCamera
 	DefaultLight   *Light
+	ViewAxes       *ViewAxes
+	Grid           *Grid
 	Lights         []*Light
 	Triangles      []*assets.Triangle
 	DrawnTriangles int32
@@ -22,26 +24,30 @@ func NewScene() *Scene {
 		Renderer:     NewRenderer3D(),
 		Camera:       NewPerspectiveCamera(),
 		DefaultLight: NewPointLight(),
+		ViewAxes:     NewViewAxes(),
+		Grid:         NewGrid(),
 	}
 }
 
 func (s *Scene) UpdateScene() {
-	// Update all geometries in the scene.
-	if len(s.Objects) > 1 {
-		for _, geometry := range s.Objects {
-			geometry.Update()
-		}
-	}
 
 	// Update the Lights
-	if len(s.Lights) > 1 {
-		for _, light := range s.Objects {
-			light.Transform.UpdateModelMatrix()
-
-		}
+	for _, light := range s.Lights {
+		light.Transform.UpdateModelMatrix()
 	}
 
-	//Updatet the Camera
+	// Update the Camera
 	s.Camera.Transform.UpdateModelMatrix()
+	s.Camera.UpdateFrustumPlanes()
+}
+
+func (s *Scene) RenderScene() {
+	s.UpdateScene()
+	for _, obj := range s.Objects {
+		if s.Camera.IsVisible(obj.BoundingBox) {
+			obj.Update()
+			s.Renderer.RenderGeometry(obj)
+		}
+	}
 
 }
