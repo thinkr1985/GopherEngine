@@ -55,18 +55,31 @@ func (s *Scene) UpdateScene() {
 		light.Transform.UpdateModelMatrix()
 	}
 
+	// Update the objects
+	for _, obj := range s.Objects {
+		obj.Update()
+		// obj.PrecomputeTextureBuffers()
+	}
+
 	// Update the Camera
 	s.Camera.Transform.UpdateModelMatrix()
 	s.Camera.UpdateFrustumPlanes()
 }
 
+func (s *Scene) AddObject(geom *assets.Geometry) {
+	geom.PrecomputeTextureBuffers()
+	s.Objects = append(s.Objects, geom)
+	s.Triangles = append(s.Triangles, geom.Triangles...)
+}
+
 func (s *Scene) RenderScene() {
+	s.DrawnTriangles = 0
 	s.UpdateScene()
-	for _, obj := range s.Objects {
-		if s.Camera.IsVisible(obj.BoundingBox) {
-			obj.Update()
-			s.Renderer.RenderGeometry(obj)
+	for _, triangle := range s.Triangles {
+		if s.Camera.IsVisible(triangle.Parent.BoundingBox) {
+			s.Renderer.RenderTriangle(s.Camera, triangle, s.Lights, s)
 		}
+		// fmt.Println(triangle.V0, triangle.V1, triangle.V2)
 	}
 
 }

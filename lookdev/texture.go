@@ -60,7 +60,6 @@ func (t *Texture) Sample(u, v float64) ColorRGBA {
 	// Clamp to texture dimensions
 	x = max(0, min(x, t.Width-1))
 	y = max(0, min(y, t.Height-1))
-
 	return t.Pixels[y*t.Width+x]
 }
 

@@ -2,7 +2,7 @@ package gui
 
 import (
 	"GopherEngine/core"
-	"GopherEngine/lookdev"
+	lookdev "GopherEngine/lookdev"
 	"fmt"
 	"image"
 	"image/color"
@@ -100,6 +100,7 @@ func Window(scene *core.Scene) {
 		scene.RenderScene()
 
 		// Get the rendered image (smaller if half-res)
+		scene.Renderer.SaveToPNG("test.png")
 		renderedImage := scene.Renderer.ToImage()
 
 		// Convert to raylib texture
@@ -125,6 +126,7 @@ func Window(scene *core.Scene) {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
 
+		// Draw render texture
 		rl.DrawTexturePro(
 			fullResTex,
 			rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height)),
@@ -141,6 +143,7 @@ func Window(scene *core.Scene) {
 		rl.EndDrawing()
 	}
 }
+
 func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {
 	// Calculate ideal scale based on FPS (inverse relationship)
 	// These values can be tweaked to get the desired behavior
@@ -189,28 +192,31 @@ func abs(x int) int {
 	}
 	return x
 }
+
 func draw_debug_stats(scene *core.Scene) {
 	avgFPS := 0
 	if len(scene.FPSHistory) > 0 {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
 	}
 
-	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v",
+	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v",
 		core.GetMachineStats(),
 		rl.GetFPS(),
 		avgFPS,
 		scene.ResolutionScale*100,
 		scene.TargetResolutionScale*100,
-		scene.AutoResolution)
+		scene.AutoResolution,
+		scene.DrawnTriangles,
+		len(scene.Triangles))
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+80, 140, rl.NewColor(0, 0, 0, 60))
+	rl.DrawRectangle(10, 10, textWidth+80, 150, rl.NewColor(0, 0, 0, 60))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 
 	// Show scaling info if in auto mode
 	if scene.AutoResolution {
 		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
-		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 130), 12, 2, rl.LightGray)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 140), 12, 2, rl.LightGray)
 	}
 }
 

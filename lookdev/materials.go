@@ -12,8 +12,8 @@ type Material struct {
 	TransparencyTexture *Texture
 }
 
-func NewMaterial(name string) Material {
-	return Material{
+func NewMaterial(name string) *Material {
+	return &Material{
 		Name:          name,
 		DiffuseColor:  ColorRGBA{R: 166, G: 166, B: 166, A: 1.0},
 		SpecularColor: ColorRGBA{R: 0, G: 0, B: 0, A: 1},

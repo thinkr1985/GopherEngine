@@ -4,7 +4,6 @@ import (
 	"GopherEngine/assets"
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -160,7 +159,7 @@ func (r *Renderer3D) ToImage() *image.RGBA {
 				R: c.R,
 				G: c.G,
 				B: c.B,
-				A: uint8(c.A * 255), // Convert float alpha to uint8
+				A: 255,
 			})
 		}
 	}
@@ -186,12 +185,8 @@ func (r *Renderer3D) DrawText2D(text string, x, y int, color *lookdev.ColorRGBA)
 
 // NDCToScreen optimized version with proper return signature
 func (r *Renderer3D) NDCToScreen(ndc nomath.Vec3) (int, int) {
-	// Use the renderer's actual dimensions
-	width := float64(r.GetWidth())
-	height := float64(r.GetHeight())
-
-	x := int((ndc.X+1)*0.5*width + 0.5)
-	y := int((1-(ndc.Y+1)*0.5)*height + 0.5)
+	x := int((ndc.X + 1) * 0.5 * float64(r.GetWidth()))
+	y := int((1 - (ndc.Y+1)*0.5) * float64(r.GetHeight()))
 	return x, y
 }
 
@@ -312,9 +307,84 @@ func abs(x int) int {
 	return x
 }
 
-func (r *Renderer3D) RenderGeometry(g *assets.Geometry) {
-	for _, triangle := range g.Triangles {
-		fmt.Printf("rendering.. %v", triangle)
-	}
+func (r *Renderer3D) RenderTriangle(camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
+	// --- Transform vertices to clip space ---
+	viewMatrix := camera.GetViewMatrix()
+	projectionMatrix := camera.GetProjectionMatrix()
+	modelMatrix := tri.Parent.Transform.GetMatrix()
+	mvpMatrix := projectionMatrix.Multiply(viewMatrix).Multiply(modelMatrix)
 
+	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
+	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
+	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
+
+	// --- Perspective division (now in NDC [-1, 1]) ---
+	v0 = v0.Multiply(1.0 / v0.W)
+	v1 = v1.Multiply(1.0 / v1.W)
+	v2 = v2.Multiply(1.0 / v2.W)
+
+	// --- Backface culling ---
+	if r.BackFaceCulling {
+		edge1 := tri.V1.Subtract(*tri.V0)
+		edge2 := tri.V2.Subtract(*tri.V0)
+		normal := edge1.Cross(edge2).Normalize()
+		viewDir := camera.Transform.GetForward()
+		if normal.Dot(viewDir) > 0 {
+			return // Skip back faces
+		}
+	}
+	scene.DrawnTriangles += 1
+	// --- Convert to screen coordinates ---
+	x0, y0 := r.NDCToScreen(v0.ToVec3())
+	x1, y1 := r.NDCToScreen(v1.ToVec3())
+	x2, y2 := r.NDCToScreen(v2.ToVec3())
+
+	// Debug: Print screen coordinates
+	// fmt.Printf("Triangle screen coords: (%d,%d), (%d,%d), (%d,%d)\n", x0, y0, x1, y1, x2, y2)
+
+	// --- Bounding box setup ---
+	minX := max(0, min(x0, min(x1, x2)))
+	maxX := min(r.GetWidth()-1, max(x0, max(x1, x2)))
+	minY := max(0, min(y0, min(y1, y2)))
+	maxY := min(r.GetHeight()-1, max(y0, max(y1, y2)))
+
+	// Debug: Print bounding box
+	// fmt.Printf("Rasterizing bounding box: [%d,%d] to [%d,%d]\n", minX, minY, maxX, maxY)
+
+	// Precompute screen-space vertices for barycentric coords
+	v0Screen := nomath.Vec2{U: float64(x0), V: float64(y0)}
+	v1Screen := nomath.Vec2{U: float64(x1), V: float64(y1)}
+	v2Screen := nomath.Vec2{U: float64(x2), V: float64(y2)}
+
+	// --- Rasterize the triangle ---
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			// Convert screen coords to NDC for barycentric
+			ndcX := (2.0 * float64(x) / float64(r.GetWidth())) - 1.0
+			ndcY := 1.0 - (2.0 * float64(y) / float64(r.GetHeight()))
+			p := nomath.Vec2{U: ndcX, V: ndcY}
+
+			// Calculate barycentric coordinates
+			u, v, w := tri.Barycentric(p, v0Screen, v1Screen, v2Screen)
+
+			// Debug: Log first few pixels
+			if x < minX+2 && y < minY+2 {
+				// fmt.Printf("Pixel (%d,%d): u=%.2f v=%.2f w=%.2f\n", x, y, u, v, w)
+			}
+
+			// Check if pixel is inside the triangle
+			if u >= 0 && v >= 0 && w >= 0 {
+				// Calculate depth (remap from NDC [-1,1] to [0,1])
+				depth := (u*v0.Z+v*v1.Z+w*v2.Z)*0.5 + 0.5
+
+				// Depth test
+				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
+					r.Framebuffer[y][x] = *tri.DiffuseBuffer
+					r.DepthBuffer[y][x] = float32(depth)
+				}
+			}
+			r.Framebuffer[y][x] = *tri.DiffuseBuffer
+			r.DepthBuffer[y][x] = float32(1)
+		}
+	}
 }

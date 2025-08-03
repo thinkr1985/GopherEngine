@@ -7,4 +7,4 @@ A CPU rasterizer using GO language.
 
 !![alt](./sources/wip_window.png)
 
-!![alt](./sources/recording_fps.mp4)
+!![alt](./sources/optimized.gif)
