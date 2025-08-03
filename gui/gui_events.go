@@ -34,14 +34,18 @@ func generateKeybaordTextureMap() map[string]rl.Texture2D {
 }
 
 func HandleInputEvents(scene *core.Scene) {
-	currentKeyboardImage = "default" // reset every frame
+	currentKeyboardImage = "default"
 
-	// Check if window is focused before handling input
 	if !rl.IsWindowFocused() {
 		return
 	}
 
-	// Handle events with proper checks
+	if rl.IsKeyPressed(rl.KeyF1) {
+		scene.HalfResolution = !scene.HalfResolution
+		// Force immediate resize
+		handleWindowResize(scene)
+	}
+
 	if rl.IsWindowReady() {
 		HandleKeyboardEvents(scene)
 		HandleMouseEvents(scene)
@@ -148,23 +152,32 @@ func handleWindowResize(scene *core.Scene) {
 	if !rl.IsWindowReady() {
 		return
 	}
-	if rl.IsWindowResized() {
-		newWidth := max(300, int(rl.GetScreenWidth()))
-		newHeight := max(200, int(rl.GetScreenHeight()))
 
-		// Only resize if dimensions actually changed
-		if newWidth != core.SCREEN_WIDTH || newHeight != core.SCREEN_HEIGHT {
-			core.SCREEN_WIDTH = newWidth
-			core.SCREEN_HEIGHT = newHeight
+	newWidth := max(300, int(rl.GetScreenWidth()))
+	newHeight := max(200, int(rl.GetScreenHeight()))
 
-			// Resize render buffers
-			scene.Renderer.Resize(newWidth, newHeight)
+	// Update global dimensions
+	core.SCREEN_WIDTH = newWidth
+	core.SCREEN_HEIGHT = newHeight
 
-			// Update camera projection
-			scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
-				float64(newWidth) / float64(core.SCREEN_WIDTH))
-			scene.Camera.Transform.UpdateModelMatrix()
-			scene.Camera.UpdateFrustumPlanes()
-		}
+	// Calculate render dimensions based on half-resolution setting
+	renderWidth := newWidth
+	renderHeight := newHeight
+	if scene.HalfResolution {
+		renderWidth = newWidth / 2
+		renderHeight = newHeight / 2
 	}
+
+	// Ensure minimum size
+	renderWidth = max(1, renderWidth)
+	renderHeight = max(1, renderHeight)
+
+	// Resize render buffers
+	scene.Renderer.Resize(renderWidth, renderHeight)
+
+	// Update camera projection
+	scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
+		float64(newWidth) / float64(core.SCREEN_WIDTH))
+	scene.Camera.Transform.UpdateModelMatrix()
+	scene.Camera.UpdateFrustumPlanes()
 }

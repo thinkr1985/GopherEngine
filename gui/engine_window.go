@@ -16,8 +16,6 @@ var debugFont rl.Font
 var isFirstFrame = true
 
 func initWindow() {
-
-	// rl.SetConfigFlags(rl.FlagMsaa4xHint) // 4X anti-aliasing .. can reduce FPS.
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -27,8 +25,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(120) // uncapped
-
+	rl.SetTargetFPS(120)
 }
 
 func Window(scene *core.Scene) {
@@ -43,31 +40,36 @@ func Window(scene *core.Scene) {
 		}
 	}()
 
-	// Declare texture variable at function scope
-	var tex rl.Texture2D
-	defer rl.UnloadTexture(tex)
+	// Declare texture variables
+	var fullResTex rl.Texture2D
+	defer rl.UnloadTexture(fullResTex)
+
+	// Create a render texture for half-resolution rendering
+	halfResRenderTex := rl.LoadRenderTexture(
+		int32(core.SCREEN_WIDTH/2),
+		int32(core.SCREEN_HEIGHT/2),
+	)
+	defer rl.UnloadRenderTexture(halfResRenderTex)
+	rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
-		// Clear to red (should be visible now)
-		scene.Renderer.Clear(lookdev.ColorRGBA{R: 60, G: 73, B: 78, A: 1.0})
+		// Clear will use correct dimensions
+		if len(scene.Renderer.Framebuffer) > 0 {
+			scene.Renderer.Clear(lookdev.ColorRGBA{R: 60, G: 73, B: 78, A: 1.0})
+		}
 
-		// Draw 3D content
+		// Draw 3D content (now at lower resolution if HalfResolution=true)
 		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
 		scene.Grid.Draw(scene.Renderer, scene.Camera)
 		scene.RenderScene()
 
-		// Get the rendered image
+		// Get the rendered image (smaller if half-res)
 		renderedImage := scene.Renderer.ToImage()
 
-		// Debug check
-		if renderedImage.Bounds().Empty() {
-			panic("Renderer produced empty image!")
-		}
-
-		// Convert to raylib texture format
+		// Convert to raylib texture
 		rgbaSlice := convertToColorRGBASlice(renderedImage)
 		rlImg := rl.Image{
 			Data:    unsafe.Pointer(&rgbaSlice[0]),
@@ -78,21 +80,27 @@ func Window(scene *core.Scene) {
 		}
 
 		// Unload previous texture if it exists
-		if tex.ID != 0 {
-			rl.UnloadTexture(tex)
+		if fullResTex.ID != 0 {
+			rl.UnloadTexture(fullResTex)
 		}
 
 		// Load new texture
-		tex = rl.LoadTextureFromImage(&rlImg)
+		fullResTex = rl.LoadTextureFromImage(&rlImg)
+		rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 		// Begin drawing
 		rl.BeginDrawing()
-		// rl.ClearBackground(rl.Black) // Window clear
+		rl.ClearBackground(rl.Black)
 
-		// Draw our rendered texture
-		rl.DrawTexture(tex, 0, 0, rl.White)
-
-		// Draw UI elements
+		rl.DrawTexturePro(
+			fullResTex,
+			rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height)),
+			rl.NewRectangle(0, 0, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight())),
+			rl.NewVector2(0, 0),
+			0,
+			rl.White,
+		)
+		// Draw UI elements (always at full resolution)
 		rl.DrawFPS(20, 20)
 		draw_debug_stats()
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])

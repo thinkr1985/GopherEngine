@@ -53,9 +53,12 @@ func (r *Renderer3D) GetHeight() int {
 }
 
 func (r *Renderer3D) Resize(width, height int) {
-	fmt.Printf("Resizing Renderer to new size %v %v", width, height)
 	r.bufferMutex.Lock()
 	defer r.bufferMutex.Unlock()
+
+	// Ensure minimum size
+	width = max(1, width)
+	height = max(1, height)
 
 	// Create new buffers
 	newFramebuffer := make([][]lookdev.ColorRGBA, height)
@@ -65,23 +68,15 @@ func (r *Renderer3D) Resize(width, height int) {
 		newFramebuffer[y] = make([]lookdev.ColorRGBA, width)
 		newDepthBuffer[y] = make([]float32, width)
 
-		// Optional: Copy existing content if possible
-		if y < len(r.Framebuffer) && width == len(r.Framebuffer[y]) {
-			copy(newFramebuffer[y], r.Framebuffer[y])
-			copy(newDepthBuffer[y], r.DepthBuffer[y])
-		} else {
-			// Initialize new rows
-			for x := 0; x < width; x++ {
-				newDepthBuffer[y][x] = math.MaxFloat32
-			}
+		// Initialize depth buffer
+		for x := 0; x < width; x++ {
+			newDepthBuffer[y][x] = math.MaxFloat32
 		}
 	}
 
-	// Atomic swap (no allocation during rendering)
 	r.Framebuffer = newFramebuffer
 	r.DepthBuffer = newDepthBuffer
 }
-
 func (r *Renderer3D) PartialResize(newWidth, newHeight int) {
 	r.bufferMutex.Lock()
 	defer r.bufferMutex.Unlock()
@@ -104,18 +99,16 @@ func (r *Renderer3D) PartialResize(newWidth, newHeight int) {
 }
 
 func (r *Renderer3D) Clear(color lookdev.ColorRGBA) {
-	// Use memset-style optimization for clearing
-	for y := 0; y < SCREEN_HEIGHT; y++ {
+	// Use the actual renderer dimensions, not SCREEN_WIDTH/HEIGHT
+	width := r.GetWidth()
+	height := r.GetHeight()
+
+	for y := 0; y < height; y++ {
 		rowPixels := r.Framebuffer[y]
 		rowDepth := r.DepthBuffer[y]
 
-		// Clear pixels
-		for x := 0; x < SCREEN_WIDTH; x++ {
+		for x := 0; x < width; x++ {
 			rowPixels[x] = color
-		}
-
-		// Clear depth (using memcpy pattern)
-		for x := 0; x < SCREEN_WIDTH; x++ {
 			rowDepth[x] = math.MaxFloat32
 		}
 	}
@@ -193,15 +186,15 @@ func (r *Renderer3D) DrawText2D(text string, x, y int, color *lookdev.ColorRGBA)
 
 // NDCToScreen optimized version with proper return signature
 func (r *Renderer3D) NDCToScreen(ndc nomath.Vec3) (int, int) {
-	// Pre-calculate screen dimensions as float64
-	width := float64(SCREEN_WIDTH)
-	height := float64(SCREEN_HEIGHT)
+	// Use the renderer's actual dimensions
+	width := float64(r.GetWidth())
+	height := float64(r.GetHeight())
 
-	// Optimized calculation
-	x := int((ndc.X+1)*0.5*width + 0.5) // +0.5 for rounding
+	x := int((ndc.X+1)*0.5*width + 0.5)
 	y := int((1-(ndc.Y+1)*0.5)*height + 0.5)
 	return x, y
 }
+
 func (r *Renderer3D) DrawLine3D(p0, p1 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
 	// Precompute matrices once
 	viewMatrix := camera.GetViewMatrix()
@@ -256,17 +249,20 @@ func (r *Renderer3D) DrawLine3D(p0, p1 nomath.Vec3, camera *PerspectiveCamera, c
 	// Draw the line
 	r.DrawLine2D(x0, y0, x1, y1, color)
 }
-
 func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
-	// Early bounds check for both points
-	if (x0 < 0 && x1 < 0) || (x0 >= SCREEN_WIDTH && x1 >= SCREEN_WIDTH) ||
-		(y0 < 0 && y1 < 0) || (y0 >= SCREEN_HEIGHT && y1 >= SCREEN_HEIGHT) {
+	// Get current renderer dimensions
+	width := r.GetWidth()
+	height := r.GetHeight()
+
+	// Early bounds check using actual renderer dimensions
+	if (x0 < 0 && x1 < 0) || (x0 >= width && x1 >= width) ||
+		(y0 < 0 && y1 < 0) || (y0 >= height && y1 >= height) {
 		return
 	}
 
 	// Early exit if points are the same
 	if x0 == x1 && y0 == y1 {
-		if x0 >= 0 && x0 < SCREEN_WIDTH && y0 >= 0 && y0 < SCREEN_HEIGHT {
+		if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
 			r.Framebuffer[y0][x0] = *color
 		}
 		return
@@ -284,11 +280,11 @@ func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
 	}
 
 	err := dx - dy
-	maxIterations := dx + dy + 1 // Reduced by 1 since we check before setting
+	maxIterations := dx + dy + 1
 
 	for i := 0; i < maxIterations; i++ {
-		// Check bounds before setting pixel
-		if x0 >= 0 && x0 < SCREEN_WIDTH && y0 >= 0 && y0 < SCREEN_HEIGHT {
+		// Check bounds using actual dimensions
+		if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
 			r.Framebuffer[y0][x0] = *color
 		}
 

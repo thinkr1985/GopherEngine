@@ -17,6 +17,7 @@ type Scene struct {
 	Lights         []*Light
 	Triangles      []*assets.Triangle
 	DrawnTriangles int32
+	HalfResolution bool
 }
 
 func NewScene() *Scene {
