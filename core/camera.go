@@ -157,3 +157,13 @@ func (c *PerspectiveCamera) IsVisible(box *nomath.BoundingBox) bool {
 	}
 	return true
 }
+
+func (c *PerspectiveCamera) Update() {
+	if c.dirtyFrustum {
+		c.UpdateFrustumPlanes()
+		c.Transform.UpdateModelMatrix()
+	} else {
+		c.Transform.UpdateModelMatrix()
+	}
+
+}

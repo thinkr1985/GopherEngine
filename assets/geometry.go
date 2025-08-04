@@ -28,8 +28,11 @@ func (g *Geometry) NewGeometry() *Geometry {
 }
 
 func (g *Geometry) Update() {
-	g.Transform.UpdateModelMatrix()
-	g.ComputeTransformedBoundingBox()
+	if g.Transform.Dirty {
+		g.Transform.UpdateModelMatrix()
+		g.ComputeTransformedBoundingBox()
+		g.Transform.Dirty = false
+	}
 }
 
 func (g *Geometry) ComputeBoundingBox() {
@@ -86,6 +89,9 @@ func (g *Geometry) ComputeTransformedBoundingBox() {
 
 func (g *Geometry) PrecomputeTextureBuffers() {
 	for _, tri := range g.Triangles {
+		if tri.BufferCache {
+			continue
+		}
 		// Initialize buffers
 		tri.DiffuseBuffer = lookdev.NewWarningColorRGBA()
 		tri.SpecularBuffer = lookdev.NewWarningColorRGBA()
@@ -120,5 +126,6 @@ func (g *Geometry) PrecomputeTextureBuffers() {
 		if tri.AlphaBuffer < 1.0 {
 			tri.DiffuseBuffer.A = tri.AlphaBuffer
 		}
+		tri.BufferCache = true
 	}
 }

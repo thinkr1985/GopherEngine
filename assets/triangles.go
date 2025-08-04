@@ -10,18 +10,21 @@ type Triangle struct {
 	Parent   *Geometry // Reference to parent geometry
 	Material *lookdev.Material
 
-	V0             *nomath.Vec3 // Vertex positions
-	V1             *nomath.Vec3 // Vertex positions
-	V2             *nomath.Vec3 // Vertex positions
-	N0             *nomath.Vec3 // Vertex normals
-	N1             *nomath.Vec3 // Vertex normals
-	N2             *nomath.Vec3 // Vertex normals
-	UV0            *nomath.Vec2 // Texture coordinates
-	UV1            *nomath.Vec2 // Texture coordinates
-	UV2            *nomath.Vec2 // Texture coordinates
-	DiffuseBuffer  *lookdev.ColorRGBA
-	SpecularBuffer *lookdev.ColorRGBA
-	AlphaBuffer    float64 // Separate alpha buffer for transparency
+	V0              *nomath.Vec3 // Vertex positions
+	V1              *nomath.Vec3 // Vertex positions
+	V2              *nomath.Vec3 // Vertex positions
+	N0              *nomath.Vec3 // Vertex normals
+	N1              *nomath.Vec3 // Vertex normals
+	N2              *nomath.Vec3 // Vertex normals
+	UV0             *nomath.Vec2 // Texture coordinates
+	UV1             *nomath.Vec2 // Texture coordinates
+	UV2             *nomath.Vec2 // Texture coordinates
+	DiffuseBuffer   *lookdev.ColorRGBA
+	SpecularBuffer  *lookdev.ColorRGBA
+	AlphaBuffer     float64 // Separate alpha buffer for transparency
+	BufferCache     bool
+	LightDotNormals []float64   // one per light
+	WorldNormal     nomath.Vec3 // transformed normal after applying NormalMatrix
 }
 
 func NewTriangle(
@@ -29,17 +32,18 @@ func NewTriangle(
 	v0, v1, v2, n0, n1, n2 *nomath.Vec3,
 	uv0, uv1, uv2 *nomath.Vec2) *Triangle {
 	return &Triangle{
-		Parent:   geometry,
-		Material: material,
-		V0:       v0,
-		V1:       v1,
-		V2:       v2,
-		N0:       n0,
-		N1:       n1,
-		N2:       n2,
-		UV0:      uv0,
-		UV1:      uv1,
-		UV2:      uv2,
+		Parent:      geometry,
+		Material:    material,
+		V0:          v0,
+		V1:          v1,
+		V2:          v2,
+		N0:          n0,
+		N1:          n1,
+		N2:          n2,
+		UV0:         uv0,
+		UV1:         uv1,
+		UV2:         uv2,
+		BufferCache: false,
 	}
 }
 
@@ -65,36 +69,29 @@ func (t *Triangle) InterpolatedNormal(u, v, w float64) nomath.Vec3 {
 }
 
 func (t *Triangle) InterpolatedUV(u, v, w float64) nomath.Vec2 {
+	// Default to (0,0) if any UV is missing
+	if t.UV0 == nil || t.UV1 == nil || t.UV2 == nil {
+		return nomath.Vec2{U: 0, V: 0}
+	}
+
+	// Clamp barycentric coordinates to ensure they're valid
+	u = clamp(u, 0, 1)
+	v = clamp(v, 0, 1)
+	w = clamp(w, 0, 1)
+
+	// Normalize to ensure u + v + w = 1
+	sum := u + v + w
+	if sum != 0 {
+		u /= sum
+		v /= sum
+		w /= sum
+	}
+
 	return nomath.Vec2{
 		U: t.UV0.U*u + t.UV1.U*v + t.UV2.U*w,
 		V: t.UV0.V*u + t.UV1.V*v + t.UV2.V*w,
 	}
 }
-
-// func (t *Triangle) InterpolatedUV(u, v, w float64) nomath.Vec2 {
-// 	// Default to (0,0) if any UV is missing
-// 	if t.UV0 == nil || t.UV1 == nil || t.UV2 == nil {
-// 		return nomath.Vec2{U: 0, V: 0}
-// 	}
-
-// 	// Clamp barycentric coordinates to ensure they're valid
-// 	u = clamp(u, 0, 1)
-// 	v = clamp(v, 0, 1)
-// 	w = clamp(w, 0, 1)
-
-// 	// Normalize to ensure u + v + w = 1
-// 	sum := u + v + w
-// 	if sum != 0 {
-// 		u /= sum
-// 		v /= sum
-// 		w /= sum
-// 	}
-
-// 	return nomath.Vec2{
-// 		U: t.UV0.U*u + t.UV1.U*v + t.UV2.U*w,
-// 		V: t.UV0.V*u + t.UV1.V*v + t.UV2.V*w,
-// 	}
-// }
 
 func clamp(value, min, max float64) float64 {
 	if value < min {

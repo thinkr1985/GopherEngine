@@ -182,3 +182,12 @@ func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 		W: v.X*m[3] + v.Y*m[7] + v.Z*m[11] + v.W*m[15],
 	}
 }
+
+// TransformVec3 transforms a Vec3 using the 3x3 portion of the matrix (ignoring translation).
+func (m Mat4) TransformVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z,
+	}
+}

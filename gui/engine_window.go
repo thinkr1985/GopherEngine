@@ -59,7 +59,7 @@ func Window(scene *core.Scene) {
 		int32(core.SCREEN_HEIGHT/2),
 	)
 	defer rl.UnloadRenderTexture(halfResRenderTex)
-	rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
+	// rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime() // Time since last frame in seconds
@@ -97,10 +97,9 @@ func Window(scene *core.Scene) {
 		// Draw 3D content (now at lower resolution if HalfResolution=true)
 		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
 		scene.Grid.Draw(scene.Renderer, scene.Camera)
-		scene.RenderScene()
+		scene.RenderOnThread()
 
 		// Get the rendered image (smaller if half-res)
-		scene.Renderer.SaveToPNG("test.png")
 		renderedImage := scene.Renderer.ToImage()
 
 		// Convert to raylib texture
@@ -120,7 +119,7 @@ func Window(scene *core.Scene) {
 
 		// Load new texture
 		fullResTex = rl.LoadTextureFromImage(&rlImg)
-		rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
+		// rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 		// Begin drawing
 		rl.BeginDrawing()
