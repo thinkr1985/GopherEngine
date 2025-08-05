@@ -2,6 +2,7 @@ package nomath
 
 import (
 	"math"
+	"sync"
 )
 
 // Coordinate system: Y+ up, Z+ forward, X+ left (right-handed)
@@ -11,6 +12,7 @@ type Transform struct {
 	Scale       Vec3 // Scale factors
 	ModelMatrix Mat4
 	Dirty       bool // track whether transform changed
+	Mutex       sync.RWMutex
 }
 
 // NewTransform creates a new Transform with default values
@@ -26,6 +28,12 @@ func NewTransform() *Transform {
 func (t *Transform) GetMatrix() Mat4 {
 	t.UpdateModelMatrix()
 	return t.ModelMatrix
+}
+
+func (t *Transform) GetModelMatrix() Mat4 {
+	t.Mutex.RLock()
+	defer t.Mutex.RUnlock()
+	return t.GetMatrix()
 }
 
 // SetPosition sets the position

@@ -29,6 +29,8 @@ func (g *Geometry) NewGeometry() *Geometry {
 
 func (g *Geometry) Update() {
 	if g.Transform.Dirty {
+		g.Transform.Mutex.Lock()
+		defer g.Transform.Mutex.Unlock()
 		g.Transform.UpdateModelMatrix()
 		g.ComputeTransformedBoundingBox()
 		g.Transform.Dirty = false

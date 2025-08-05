@@ -28,6 +28,7 @@ func initWindow() {
 	rl.SetTargetFPS(120)
 
 }
+
 func Window(scene *core.Scene) {
 	initWindow()
 	defer rl.CloseWindow()
@@ -133,6 +134,7 @@ func Window(scene *core.Scene) {
 		rl.EndDrawing()
 	}
 }
+
 func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {
 	// Calculate ideal scale based on FPS (inverse relationship)
 	// These values can be tweaked to get the desired behavior

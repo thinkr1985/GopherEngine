@@ -45,7 +45,7 @@ func NewDirectionalLight() *Light {
 		Name:        "DefaultPointLight",
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
-		Intensity:   1.0,
+		Intensity:   10.0,
 		Attenuation: 1.0,
 		Type:        LightTypeDirectional,
 	}
@@ -53,8 +53,8 @@ func NewDirectionalLight() *Light {
 	l.Color.R = 255
 	l.Color.G = 255
 	l.Color.B = 255
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 100, Z: 20})
-	l.Transform.Rotation.Z = 45.0
+	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 50, Z: 20})
+	l.Transform.Rotation.Z = 90.0
 	l.Transform.UpdateModelMatrix()
 	return l
 }

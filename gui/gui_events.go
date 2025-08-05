@@ -68,31 +68,37 @@ func HandleKeyboardEvents(scene *core.Scene) {
 		// Move in camera's forward direction (use positive forward vector)
 		scene.Camera.Transform.Translate(forward.Multiply(moveSpeed))
 		currentKeyboardImage = "W"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyS) {
 		// Move in camera's backward direction
 		scene.Camera.Transform.Translate(forward.Multiply(-moveSpeed))
 		currentKeyboardImage = "S"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyA) {
 		// Move left (negative right vector)
 		scene.Camera.Transform.Translate(right.Multiply(-moveSpeed))
 		currentKeyboardImage = "A"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyD) {
 		// Move right (positive right vector)
 		scene.Camera.Transform.Translate(right.Multiply(moveSpeed))
 		currentKeyboardImage = "D"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// Rotation controls (unchanged)
 	if rl.IsKeyDown(rl.KeyRight) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
 		currentKeyboardImage = "arrowRight"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyLeft) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: rotateSpeed})
 		currentKeyboardImage = "arrowLeft"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyUp) {
 		currentKeyboardImage = "upArrow"
@@ -125,6 +131,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		pan := right.Add(up)
 		scene.Camera.Transform.Translate(pan)
 		currentKeyboardImage = "scroll"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// --- Scroll to zoom ---
@@ -134,6 +141,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		forward := scene.Camera.Transform.GetForward().Multiply(float64(scroll) * zoomSpeed)
 		scene.Camera.Transform.Translate(forward)
 		currentKeyboardImage = "scroll"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// --- Left drag to rotate around Y axis ---

@@ -14,13 +14,13 @@ func main() {
 	scene := core.NewScene()
 
 	// Load the OBJ model
-	tree, err := assets.LoadOBJ("objs/hammer.obj")
+	tree, err := assets.LoadOBJ("objs/tree_foliage.obj")
 	if err != nil {
 		log.Fatalf("Failed to load OBJ file: %v", err)
 	}
 	tree.Transform.SetPosition(nomath.Vec3{X: 0, Y: 0, Z: -20})
 
-	tex, err := lookdev.LoadTexture("textures/thor_color.jpg")
+	tex, err := lookdev.LoadTexture("textures/DB2X2_L01.png")
 	if err != nil {
 		log.Printf("Warning: Failed to load texture: %v", err)
 	} else {

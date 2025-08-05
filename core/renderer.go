@@ -8,7 +8,6 @@ import (
 	"image/color"
 	"image/png"
 	"math"
-	"math/rand/v2"
 	"os"
 	"sync"
 )
@@ -20,7 +19,6 @@ type Renderer3D struct {
 	bufferMutex          sync.Mutex // For thread-safe resizing
 	precomputedLightDirs []nomath.Vec3
 	ambienceFactor       float64
-	ambienceColor        lookdev.ColorRGBA
 
 	CachedRGBA   []color.RGBA
 	cachedWidth  int
@@ -35,7 +33,7 @@ type Renderer3D struct {
 	SSAONoiseTexture *lookdev.Texture
 	SSAONoiseScale   float64
 
-	currentX, currentY int // Track current pixel being rendered
+	rowLocks []sync.Mutex // NEW: One mutex per row
 }
 
 func NewRenderer3D() *Renderer3D {
@@ -43,30 +41,17 @@ func NewRenderer3D() *Renderer3D {
 		BackFaceCulling: true,
 		Framebuffer:     make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
+		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  1.0,
-		SSAOEnabled:     false,
-		SSAORadius:      0.5,
-		SSAOBias:        0.025,
-		SSAOSamples:     16,
-		SSAONoiseScale:  4.0,
 	}
-	r.ambienceColor = lookdev.ColorRGBA{R: 255, G: 202, B: 138, A: 1} // orange tint
-	// Initialize each row
+	// Init buffers
 	for y := 0; y < SCREEN_HEIGHT; y++ {
 		r.Framebuffer[y] = make([]lookdev.ColorRGBA, SCREEN_WIDTH)
 		r.DepthBuffer[y] = make([]float32, SCREEN_WIDTH)
-
-		// Initialize depth buffer with maximum depth
 		for x := 0; x < SCREEN_WIDTH; x++ {
 			r.DepthBuffer[y][x] = math.MaxFloat32
 		}
 	}
-
-	// Initialize SSAO kernel
-	r.generateSSAOKernel()
-
-	// Initialize SSAO noise texture
-	r.generateSSAONoise()
 	return r
 }
 
@@ -120,6 +105,8 @@ func (r *Renderer3D) Resize(width, height int) {
 	// Atomic swap of buffers
 	r.Framebuffer = newFramebuffer
 	r.DepthBuffer = newDepthBuffer
+
+	r.rowLocks = make([]sync.Mutex, height) // When resizing
 }
 
 func (r *Renderer3D) Clear(color lookdev.ColorRGBA) {
@@ -140,45 +127,6 @@ func (r *Renderer3D) Clear(color lookdev.ColorRGBA) {
 
 type DirtyRect struct {
 	X1, Y1, X2, Y2 int
-}
-
-func (r *Renderer3D) generateSSAOKernel() {
-	r.SSAOKernel = make([]nomath.Vec3, r.SSAOSamples)
-	for i := 0; i < r.SSAOSamples; i++ {
-		// Generate random samples in hemisphere oriented along Z axis
-		sample := nomath.Vec3{
-			X: rand.Float64()*2 - 1,
-			Y: rand.Float64()*2 - 1,
-			Z: rand.Float64(), // Only positive Z (hemisphere)
-		}.Normalize()
-
-		// Scale for more samples closer to origin
-		scale := float64(i) / float64(r.SSAOSamples)
-		scale = lerp(0.1, 1.0, scale*scale)
-		sample = sample.Multiply(scale)
-
-		r.SSAOKernel[i] = sample
-	}
-}
-
-func (r *Renderer3D) generateSSAONoise() {
-	// Create a small random rotation texture (4x4)
-	noisePixels := make([]lookdev.ColorRGBA, 16)
-	for i := 0; i < 16; i++ {
-		// Store random rotations in RGB channels
-		noisePixels[i] = lookdev.ColorRGBA{
-			R: uint8(rand.Float64() * 255),
-			G: uint8(rand.Float64() * 255),
-			B: 0,
-			A: 1.0,
-		}
-	}
-
-	r.SSAONoiseTexture = &lookdev.Texture{
-		Width:  4,
-		Height: 4,
-		Pixels: noisePixels,
-	}
 }
 
 func (r *Renderer3D) ToImage() *image.RGBA {
@@ -219,23 +167,6 @@ func (r *Renderer3D) NDCToScreen(ndc nomath.Vec3) (int, int) {
 	x := int((ndc.X + 1) * 0.5 * float64(r.GetWidth()))
 	y := int((1 - (ndc.Y+1)*0.5) * float64(r.GetHeight()))
 	return x, y
-}
-
-func (r *Renderer3D) calculateWorldPosition(x, y int, depth float64, camera *PerspectiveCamera) nomath.Vec3 {
-	// Convert screen coordinates to NDC
-	ndcX := (2.0 * float64(x) / float64(r.GetWidth())) - 1.0
-	ndcY := 1.0 - (2.0 * float64(y) / float64(r.GetHeight()))
-	ndcZ := depth*2.0 - 1.0 // Convert back to [-1,1] range
-
-	// Create clip coordinates
-	clipPos := nomath.Vec4{X: ndcX, Y: ndcY, Z: ndcZ, W: 1.0}
-
-	// Transform back to world space
-	invViewProj := camera.GetProjectionMatrix().Multiply(camera.GetViewMatrix()).Inverse()
-	worldPos := invViewProj.MultiplyVec4(clipPos)
-	worldPos = worldPos.Multiply(1.0 / worldPos.W) // Perspective divide
-
-	return worldPos.ToVec3()
 }
 
 func (r *Renderer3D) DrawLine3D(p0, p1 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
@@ -292,6 +223,7 @@ func (r *Renderer3D) DrawLine3D(p0, p1 nomath.Vec3, camera *PerspectiveCamera, c
 	// Draw the line
 	r.DrawLine2D(x0, y0, x1, y1, color)
 }
+
 func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
 	// Get current renderer dimensions
 	width := r.GetWidth()
@@ -367,335 +299,180 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		}
 	}
 }
-
 func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
-	// --- Transform vertices to clip space ---
+	nearPlane := camera.NearPlane
 
+	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
 	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
 
-	// --- Perspective division (now in NDC [-1, 1]) ---
-	v0 = v0.Multiply(1.0 / v0.W)
-	v1 = v1.Multiply(1.0 / v1.W)
-	v2 = v2.Multiply(1.0 / v2.W)
+	// Store in array for easier indexing
+	clipVerts := [3]nomath.Vec4{v0, v1, v2}
+	screenVerts := [3]nomath.Vec3{}
 
-	// --- Backface culling ---
-	normal := tri.Normal()
-	viewDir := camera.Transform.GetForward()
-	if r.BackFaceCulling {
-		if normal.Dot(viewDir) > 0 {
-			return // Skip back faces
+	// Count how many vertices are in front of the near plane
+	inFront := [3]bool{}
+	numInFront := 0
+	for i := 0; i < 3; i++ {
+		if clipVerts[i].Z > -nearPlane {
+			inFront[i] = true
+			numInFront++
 		}
 	}
-	scene.DrawnTriangles += 1
-	// --- Convert to screen coordinates ---
-	x0, y0 := r.NDCToScreen(v0.ToVec3())
-	x1, y1 := r.NDCToScreen(v1.ToVec3())
-	x2, y2 := r.NDCToScreen(v2.ToVec3())
 
-	// --- Bounding box setup ---
+	// If all behind, skip
+	if numInFront == 0 {
+		return
+	}
+
+	// If all in front, proceed with regular rasterization
+	if numInFront == 3 {
+		for i := 0; i < 3; i++ {
+			screenVerts[i] = clipVerts[i].ToVec3()
+		}
+		r.rasterizeTriangle(screenVerts, tri, lights, camera)
+		return
+	}
+
+	// Otherwise, clip against near plane and reconstruct 1 or 2 triangles
+	var newVerts []nomath.Vec3
+
+	getIntersect := func(a, b nomath.Vec4) nomath.Vec3 {
+		t := (-nearPlane - a.Z) / (b.Z - a.Z)
+		interp := a.Add(b.Sub(a).Multiply(t))
+		return interp.Divide(interp.W).ToVec3()
+	}
+
+	for i := 0; i < 3; i++ {
+		curr := clipVerts[i]
+		next := clipVerts[(i+1)%3]
+
+		currIn := inFront[i]
+		nextIn := inFront[(i+1)%3]
+
+		if currIn {
+			// Keep current vertex
+			newVerts = append(newVerts, curr.ToVec3())
+		}
+		if currIn != nextIn {
+			// Edge crosses near plane — compute intersection
+			newVerts = append(newVerts, getIntersect(curr, next))
+		}
+	}
+
+	// Rasterize new triangle(s)
+	if len(newVerts) < 3 {
+		return // degenerate
+	}
+	if len(newVerts) == 3 {
+		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
+	} else if len(newVerts) == 4 {
+		// Split quad into 2 triangles
+		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
+		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
+	}
+}
+
+func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera) {
+	x0, y0 := r.NDCToScreen(verts[0])
+	x1, y1 := r.NDCToScreen(verts[1])
+	x2, y2 := r.NDCToScreen(verts[2])
+
 	minX := max(0, min(x0, min(x1, x2)))
 	maxX := min(r.GetWidth()-1, max(x0, max(x1, x2)))
 	minY := max(0, min(y0, min(y1, y2)))
 	maxY := min(r.GetHeight()-1, max(y0, max(y1, y2)))
 
-	// Precompute screen-space vertices for barycentric coords
+	if minX > maxX || minY > maxY {
+		return
+	}
+
 	v0Screen := nomath.Vec2{U: float64(x0), V: float64(y0)}
 	v1Screen := nomath.Vec2{U: float64(x1), V: float64(y1)}
 	v2Screen := nomath.Vec2{U: float64(x2), V: float64(y2)}
 
-	// --- Rasterize the triangle ---
-	for y := minY; y <= maxY; y++ {
-		r.currentY = y
-		for x := minX; x <= maxX; x++ {
-			r.currentX = x
-			// Convert screen coords to NDC for barycentric
-			// ndcX := (2.0 * float64(x) / float64(r.GetWidth())) - 1.0
-			// ndcY := 1.0 - (2.0 * float64(y) / float64(r.GetHeight()))
-			p := nomath.Vec2{U: float64(x), V: float64(y)}
+	depth0 := (verts[0].Z + 1) * 0.5
+	depth1 := (verts[1].Z + 1) * 0.5
+	depth2 := (verts[2].Z + 1) * 0.5
 
-			// Calculate barycentric coordinates
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			p := nomath.Vec2{U: float64(x), V: float64(y)}
 			u, v, w := tri.Barycentric(p, v0Screen, v1Screen, v2Screen)
 
-			// Check if pixel is inside the triangle
 			if u >= 0 && v >= 0 && w >= 0 {
-				// print("Depth Test triggered...")
-				// Calculate interpolated depth in NDC space [-1,1]
-				depth := u*v0.Z + v*v1.Z + w*v2.Z
-
-				// Convert to [0,1] range for depth buffer storage
-				// Near plane maps to 0, far plane maps to 1
-				depth = (depth + 1) * 0.5
-
-				// Depth test (note reversed comparison for depth buffer)
+				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-					color := r.calculateLighting(tri, normal, viewDir)
+					var color *lookdev.ColorRGBA
+					if len(tri.LightDotNormals) == len(lights) {
+						color = r.calculateLightingWithPrecomputed(tri, lights)
+					} else {
+						color = r.calculateLighting(tri, tri.WorldNormal, camera.Transform.GetForward(), lights)
+					}
 					r.safeSetPixel(x, y, *color)
 					r.DepthBuffer[y][x] = float32(depth)
 				}
-				if depth >= 0 && depth <= 1 {
-					gray := uint8(depth * 255)
-					debugColor := lookdev.ColorRGBA{R: gray, G: gray, B: gray, A: 1}
-					r.Framebuffer[y][x] = debugColor
-					r.DepthBuffer[y][x] = float32(depth)
-				}
 			}
-			// calculate lighting
-			// color := r.calculateLighting(tri, normal, viewDir)
-			// r.Framebuffer[y][x] = *color
-			// r.DepthBuffer[y][x] = float32(1)
 		}
-	}
-	// After rendering all triangles, calculate SSAO
-	if r.SSAOEnabled {
-		r.calculateSSAO(camera)
 	}
 }
 
-func (r *Renderer3D) calculateLighting(
-	triangle *assets.Triangle, normal nomath.Vec3, viewDir nomath.Vec3) *lookdev.ColorRGBA {
-	diffuseColor := triangle.DiffuseBuffer
-	// diffuseColor := triangle.Material.DiffuseColor
-	// Apply ambient occlusion
-	// ambientOcclusion := 1.0
-	// if r.SSAOEnabled {
-	// 	ambientOcclusion = float64(r.SSAOBuffer[r.currentY][r.currentX])
-	// }
+func (r *Renderer3D) calculateLightingWithPrecomputed(tri *assets.Triangle, lights []*Light) *lookdev.ColorRGBA {
+	result := *tri.DiffuseBuffer
 
-	// // Calculate ambient with occlusion
-	// ambient := lookdev.ColorRGBA{
-	// 	R: uint8(float64(r.ambienceColor.R) * r.ambienceFactor * ambientOcclusion),
-	// 	G: uint8(float64(r.ambienceColor.G) * r.ambienceFactor * ambientOcclusion),
-	// 	B: uint8(float64(r.ambienceColor.B) * r.ambienceFactor * ambientOcclusion),
-	// }
+	// Apply precomputed lighting factors
+	for i, dot := range tri.LightDotNormals {
+		if i >= len(lights) {
+			break
+		}
+		intensity := float64(lights[i].Intensity) / 255.0
+		result.R = min(255, result.R+uint8(float64(tri.DiffuseBuffer.R)*dot*intensity))
+		result.G = min(255, result.G+uint8(float64(tri.DiffuseBuffer.G)*dot*intensity))
+		result.B = min(255, result.B+uint8(float64(tri.DiffuseBuffer.B)*dot*intensity))
+	}
 
-	// Add diffuse and specular from each light
-	for _, lightDir := range r.precomputedLightDirs {
-		// Diffuse
+	// Apply specular if available
+	if tri.SpecularBuffer != nil {
+		result.R = min(255, result.R+tri.SpecularBuffer.R)
+		result.G = min(255, result.G+tri.SpecularBuffer.G)
+		result.B = min(255, result.B+tri.SpecularBuffer.B)
+	}
+
+	return &result
+}
+
+func (r *Renderer3D) calculateLighting(tri *assets.Triangle, normal nomath.Vec3, viewDir nomath.Vec3, lights []*Light) *lookdev.ColorRGBA {
+	result := *tri.DiffuseBuffer
+
+	for _, light := range lights {
+		lightDir := light.GetDirection()
 		diffuseFactor := math.Max(0, normal.Dot(lightDir))
-		diffuseColor.R += uint8(float64(diffuseColor.R) * diffuseFactor)
-		diffuseColor.G += uint8(float64(diffuseColor.G) * diffuseFactor)
-		diffuseColor.B += uint8(float64(diffuseColor.B) * diffuseFactor)
+		intensity := float64(light.Intensity) / 255.0
+
+		result.R = min(255, result.R+uint8(float64(tri.DiffuseBuffer.R)*diffuseFactor*intensity))
+		result.G = min(255, result.G+uint8(float64(tri.DiffuseBuffer.G)*diffuseFactor*intensity))
+		result.B = min(255, result.B+uint8(float64(tri.DiffuseBuffer.B)*diffuseFactor*intensity))
 
 		// Specular (Blinn-Phong)
 		halfDir := lightDir.Add(viewDir).Normalize()
-		specFactor := math.Pow(math.Max(0, normal.Dot(halfDir)), float64(triangle.Material.Shininess))
-		diffuseColor.R += uint8(float64(triangle.Material.SpecularColor.R) * specFactor)
-		diffuseColor.G += uint8(float64(triangle.Material.SpecularColor.G) * specFactor)
-		diffuseColor.B += uint8(float64(triangle.Material.SpecularColor.B) * specFactor)
-	}
-	// Calculating overall ambience factor
-	// diffuseColor.R += uint8(float64(ambient.R))
-	// diffuseColor.G += uint8(float64(ambient.G))
-	// diffuseColor.B += uint8(float64(ambient.B))
-
-	// Clamp color values
-	diffuseColor.R = min(diffuseColor.R, 255)
-	diffuseColor.G = min(diffuseColor.G, 255)
-	diffuseColor.B = min(diffuseColor.B, 255)
-
-	return diffuseColor
-}
-func (r *Renderer3D) calculateSSAO(camera *PerspectiveCamera) {
-	width := r.GetWidth()
-	height := r.GetHeight()
-
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			if r.DepthBuffer[y][x] >= 1.0 {
-				r.SSAOBuffer[y][x] = 1.0 // No occlusion for background
-				continue
-			}
-
-			// Get world position
-			pos := r.calculateWorldPosition(x, y, float64(r.DepthBuffer[y][x]), camera)
-
-			// Reconstruct normal from depth buffer
-			normal := r.reconstructNormal(x, y, camera)
-
-			// Get random rotation from noise texture
-			noiseVec := r.getSSAONoise(x, y)
-
-			// Create tangent space matrix with noise rotation
-			tangent := nomath.Vec3{X: 1, Y: 0, Z: 0}.Cross(normal).Normalize()
-			tangent = tangent.Add(noiseVec.Multiply(0.5)).Normalize() // Apply noise
-			bitangent := normal.Cross(tangent).Normalize()
-			tbn := nomath.Mat3{
-				tangent.X, bitangent.X, normal.X,
-				tangent.Y, bitangent.Y, normal.Y,
-				tangent.Z, bitangent.Z, normal.Z,
-			}
-
-			occlusion := 0.0
-			for i := 0; i < r.SSAOSamples; i++ {
-				// Rotate sample to normal's hemisphere with noise variation
-				sample := tbn.MultiplyVec3(r.SSAOKernel[i])
-				sample = pos.Add(sample.Multiply(r.SSAORadius))
-
-				// Project sample position to screen space
-				sampleScreen := r.worldToScreen(sample, camera)
-				sx, sy := int(sampleScreen.X), int(sampleScreen.Y)
-
-				// Check bounds
-				if sx < 0 || sx >= width || sy < 0 || sy >= height {
-					continue
-				}
-
-				// Get sample depth
-				sampleDepth := float64(r.DepthBuffer[sy][sx])
-				if sampleDepth >= 1.0 {
-					continue
-				}
-
-				// Get sample position
-				samplePos := r.calculateWorldPosition(sx, sy, sampleDepth, camera)
-
-				// Range check and accumulate
-				sampleDelta := samplePos.Subtract(pos)
-				sampleDist := sampleDelta.Length()
-				rangeCheck := smoothstep(0.0, 1.0, r.SSAORadius/sampleDist)
-				occlusion += step(samplePos.Z, pos.Z-r.SSAOBias) * rangeCheck
-			}
-
-			occlusion = 1.0 - (occlusion / float64(r.SSAOSamples))
-			r.SSAOBuffer[y][x] = float32(occlusion)
+		specFactor := math.Pow(math.Max(0, normal.Dot(halfDir)), float64(tri.Material.Shininess))
+		if tri.SpecularBuffer != nil {
+			result.R = min(255, result.R+uint8(float64(tri.SpecularBuffer.R)*specFactor*intensity))
+			result.G = min(255, result.G+uint8(float64(tri.SpecularBuffer.G)*specFactor*intensity))
+			result.B = min(255, result.B+uint8(float64(tri.SpecularBuffer.B)*specFactor*intensity))
 		}
 	}
 
-	// Apply blur to reduce noise
-	r.blurSSAOBuffer()
-}
-
-// reconstructNormal estimates normal from depth buffer using a cross pattern
-func (r *Renderer3D) reconstructNormal(x, y int, camera *PerspectiveCamera) nomath.Vec3 {
-	width := r.GetWidth()
-	height := r.GetHeight()
-
-	// Get neighboring pixels with boundary checks
-	x0 := max(0, x-1)
-	x1 := min(width-1, x+1)
-	y0 := max(0, y-1)
-	y1 := min(height-1, y+1)
-
-	// Get world positions for center and 4 neighbors
-	center := r.calculateWorldPosition(x, y, float64(r.DepthBuffer[y][x]), camera)
-
-	// Only proceed if we have valid depth values around us
-	if r.DepthBuffer[y][x0] >= 1.0 || r.DepthBuffer[y][x1] >= 1.0 ||
-		r.DepthBuffer[y0][x] >= 1.0 || r.DepthBuffer[y1][x] >= 1.0 {
-		return nomath.Vec3{Z: 1} // Fallback to facing forward
-	}
-
-	left := r.calculateWorldPosition(x0, y, float64(r.DepthBuffer[y][x0]), camera)
-	right := r.calculateWorldPosition(x1, y, float64(r.DepthBuffer[y][x1]), camera)
-	top := r.calculateWorldPosition(x, y0, float64(r.DepthBuffer[y0][x]), camera)
-	bottom := r.calculateWorldPosition(x, y1, float64(r.DepthBuffer[y1][x]), camera)
-
-	// Calculate horizontal and vertical differences
-	dx := right.Subtract(left)
-	dy := bottom.Subtract(top)
-
-	// Cross product to get normal (flipped for correct facing)
-	normal := dy.Cross(dx).Normalize()
-
-	// Ensure normal faces the camera (consistent winding)
-	viewDir := center.Subtract(camera.Transform.Position).Normalize()
-	if normal.Dot(viewDir) < 0 {
-		normal = normal.Negate()
-	}
-
-	return normal
-}
-
-func (r *Renderer3D) getSSAONoise(x, y int) nomath.Vec3 {
-	// Scale coordinates by noise scale and wrap
-	nx := int(float64(x)/r.SSAONoiseScale) % r.SSAONoiseTexture.Width
-	ny := int(float64(y)/r.SSAONoiseScale) % r.SSAONoiseTexture.Height
-	if nx < 0 {
-		nx += r.SSAONoiseTexture.Width
-	}
-	if ny < 0 {
-		ny += r.SSAONoiseTexture.Height
-	}
-
-	// Get noise value and remap to [-1,1]
-	noise := r.SSAONoiseTexture.Pixels[ny*r.SSAONoiseTexture.Width+nx]
-	return nomath.Vec3{
-		X: float64(noise.R)/127.5 - 1.0,
-		Y: float64(noise.G)/127.5 - 1.0,
-		Z: 0,
-	}.Normalize()
-}
-
-func (r *Renderer3D) blurSSAOBuffer() {
-	width, height := r.GetWidth(), r.GetHeight()
-	temp := make([][]float32, height)
-
-	// Horizontal pass
-	for y := 0; y < height; y++ {
-		temp[y] = make([]float32, width)
-		for x := 1; x < width-1; x++ {
-			temp[y][x] = (r.SSAOBuffer[y][x-1] +
-				r.SSAOBuffer[y][x]*2 +
-				r.SSAOBuffer[y][x+1]) / 4
-		}
-	}
-
-	// Vertical pass
-	for y := 1; y < height-1; y++ {
-		for x := 0; x < width; x++ {
-			r.SSAOBuffer[y][x] = (temp[y-1][x] +
-				temp[y][x]*2 +
-				temp[y+1][x]) / 4
-		}
-	}
-}
-
-func (r *Renderer3D) worldToScreen(pos nomath.Vec3, camera *PerspectiveCamera) nomath.Vec3 {
-	viewProj := camera.GetProjectionMatrix().Multiply(camera.GetViewMatrix())
-	clipPos := viewProj.MultiplyVec4(pos.ToVec4(1.0))
-	clipPos = clipPos.Multiply(1.0 / clipPos.W) // Perspective divide
-
-	// Convert to screen coordinates
-	return nomath.Vec3{
-		X: (clipPos.X + 1.0) * 0.5 * float64(r.GetWidth()),
-		Y: (1.0 - (clipPos.Y+1.0)*0.5) * float64(r.GetHeight()),
-		Z: clipPos.Z,
-	}
-}
-
-func lerp(a, b, t float64) float64 {
-	return a + t*(b-a)
-}
-
-func smoothstep(edge0, edge1, x float64) float64 {
-	t := clamp((x-edge0)/(edge1-edge0), 0.0, 1.0)
-	return t * t * (3.0 - 2.0*t)
-}
-
-func clamp(x, min, max float64) float64 {
-	if x < min {
-		return min
-	}
-	if x > max {
-		return max
-	}
-	return x
-}
-
-func step(edge, x float64) float64 {
-	if x < edge {
-		return 0.0
-	}
-	return 1.0
+	return &result
 }
 
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
-	r.bufferMutex.Lock()
-	defer r.bufferMutex.Unlock()
-
-	if x >= 0 && x < r.GetWidth() && y >= 0 && y < r.GetHeight() {
-		r.Framebuffer[y][x] = color
+	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
+		return
 	}
+
+	r.rowLocks[y].Lock()
+	r.Framebuffer[y][x] = color
+	r.rowLocks[y].Unlock()
 }

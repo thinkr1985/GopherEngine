@@ -84,3 +84,27 @@ func (v Vec4) NormalizePlane() Vec4 {
 func (v Vec4) Length() float64 {
 	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z + v.W*v.W)
 }
+
+// Sub performs vector subtraction: v - other
+func (v Vec4) Sub(other Vec4) Vec4 {
+	return Vec4{
+		X: v.X - other.X,
+		Y: v.Y - other.Y,
+		Z: v.Z - other.Z,
+		W: v.W - other.W,
+	}
+}
+
+// Divide divides all components of the vector by a scalar
+func (v Vec4) Divide(scalar float64) Vec4 {
+	if scalar != 0 {
+		inv := 1.0 / scalar
+		return Vec4{
+			X: v.X * inv,
+			Y: v.Y * inv,
+			Z: v.Z * inv,
+			W: v.W * inv,
+		}
+	}
+	return v // Or panic/log if divide-by-zero should be caught
+}
