@@ -103,7 +103,7 @@ func clamp(value, min, max float64) float64 {
 	return value
 }
 
-func (t *Triangle) Barycentric(p nomath.Vec2, v0Screen, v1Screen, v2Screen nomath.Vec2) (u, v, w float64) {
+func Barycentric(p nomath.Vec2, v0Screen, v1Screen, v2Screen nomath.Vec2) (u, v, w float64) {
 	denom := (v1Screen.V-v2Screen.V)*(v0Screen.U-v2Screen.U) +
 		(v2Screen.U-v1Screen.U)*(v0Screen.V-v2Screen.V)
 

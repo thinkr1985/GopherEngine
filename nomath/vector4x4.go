@@ -108,3 +108,15 @@ func (v Vec4) Divide(scalar float64) Vec4 {
 	}
 	return v // Or panic/log if divide-by-zero should be caught
 }
+
+func (v Vec4) DivideW() Vec4 {
+	if v.W == 0 {
+		return v // or panic/log
+	}
+	return Vec4{
+		X: v.X / v.W,
+		Y: v.Y / v.W,
+		Z: v.Z / v.W,
+		W: 1.0, // convention: after perspective divide
+	}
+}

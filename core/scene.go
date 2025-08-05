@@ -71,6 +71,7 @@ func NewScene() *Scene {
 	}
 	s.Renderer.PreComputeLightDirs(&s)
 	s.Camera.Scene = &s
+	s.DefaultLight.Shadows = true
 	return &s
 }
 
@@ -97,6 +98,13 @@ func (s *Scene) AddObject(geom *assets.Geometry) {
 func (s *Scene) RenderScene() {
 	s.DrawnTriangles = 0
 	s.UpdateScene()
+
+	// Render shadow maps first
+	for _, light := range s.Lights {
+		if light.Shadows {
+			s.Renderer.RenderShadowMap(light, s)
+		}
+	}
 
 	viewDir := s.Camera.Transform.GetForward()
 	viewProjMatrix := s.cachedViewProjMatrix
