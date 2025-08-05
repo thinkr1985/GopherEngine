@@ -2,7 +2,6 @@ package gui
 
 import (
 	"GopherEngine/core"
-	lookdev "GopherEngine/lookdev"
 	"fmt"
 	"image"
 	"image/color"
@@ -27,19 +26,19 @@ func initWindow() {
 	rl.UnloadImage(icon)
 
 	rl.SetTargetFPS(120)
-}
 
+}
 func Window(scene *core.Scene) {
 	initWindow()
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
-	// Initialize resolution scaling with proper types
+	// Initialize resolution scaling
 	scene.ResolutionScale = 1.0
 	scene.AutoResolution = false
 	scene.LastFPS = 60
 	scene.MinResolutionScale = 0.1
-	scene.LastScaleChange = rl.GetTime() // Initialize with current time
+	scene.LastScaleChange = rl.GetTime()
 	scene.FPSHistory = make([]int, 0, 10)
 
 	keyboardTextures := generateKeybaordTextureMap()
@@ -49,24 +48,26 @@ func Window(scene *core.Scene) {
 		}
 	}()
 
-	// Declare texture variables
+	// Create initial texture
 	var fullResTex rl.Texture2D
 	defer rl.UnloadTexture(fullResTex)
 
-	// Create a render texture for half-resolution rendering
-	halfResRenderTex := rl.LoadRenderTexture(
-		int32(core.SCREEN_WIDTH/2),
-		int32(core.SCREEN_HEIGHT/2),
-	)
-	defer rl.UnloadRenderTexture(halfResRenderTex)
-	// rl.SetTextureFilter(halfResRenderTex.Texture, rl.FilterBilinear)
+	// Start with a 1x1 black texture
+	initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
+	fullResTex = rl.LoadTextureFromImage(&rl.Image{
+		Data:    unsafe.Pointer(&initialPixels[0]),
+		Width:   1,
+		Height:  1,
+		Mipmaps: 1,
+		Format:  rl.PixelFormat(7),
+	})
 
 	for !rl.WindowShouldClose() {
-		frameTime := rl.GetFrameTime() // Time since last frame in seconds
+		frameTime := rl.GetFrameTime()
 		currentTime := rl.GetTime()
 		currentFPS := rl.GetFPS()
 
-		// Update FPS history for smoothing
+		// Update FPS history
 		if len(scene.FPSHistory) >= 120 {
 			scene.FPSSum -= scene.FPSHistory[0]
 			scene.FPSHistory = scene.FPSHistory[1:]
@@ -74,58 +75,48 @@ func Window(scene *core.Scene) {
 		scene.FPSHistory = append(scene.FPSHistory, int(currentFPS))
 		scene.FPSSum += int(currentFPS)
 
-		// Auto-resolution scaling logic
+		// Handle auto-resolution
 		if scene.AutoResolution {
-			// Only update target scale every 0.5 seconds (cooldown period)
 			if currentTime-scene.LastScaleChange > 0.5 {
 				smoothedFPS := scene.FPSSum / len(scene.FPSHistory)
 				updateTargetResolution(scene, smoothedFPS, currentTime)
 			}
-
-			// Gradually move toward target resolution
 			adjustResolutionGradually(scene, float64(frameTime))
 		}
 
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
-		// Clear will use correct dimensions
-		if len(scene.Renderer.Framebuffer) > 0 {
-			scene.Renderer.Clear(lookdev.ColorRGBA{R: 60, G: 73, B: 78, A: 1.0})
-		}
-
-		// Draw 3D content (now at lower resolution if HalfResolution=true)
+		// Render 3D scene
 		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
 		scene.Grid.Draw(scene.Renderer, scene.Camera)
-		scene.RenderOnThread()
+		scene.RenderScene()
 
-		// Get the rendered image (smaller if half-res)
-		renderedImage := scene.Renderer.ToImage()
+		// Get rendered image and convert to RGBA
+		rawImage := scene.Renderer.ToImage()
+		rgbaSlice := convertToColorRGBASlice(rawImage)
 
-		// Convert to raylib texture
-		rgbaSlice := convertToColorRGBASlice(renderedImage)
-		rlImg := rl.Image{
-			Data:    unsafe.Pointer(&rgbaSlice[0]),
-			Width:   int32(renderedImage.Bounds().Dx()),
-			Height:  int32(renderedImage.Bounds().Dy()),
-			Mipmaps: 1,
-			Format:  rl.UncompressedR8g8b8a8,
-		}
-
-		// Unload previous texture if it exists
-		if fullResTex.ID != 0 {
+		// Check if we need to resize texture
+		imgWidth := rawImage.Bounds().Dx()
+		imgHeight := rawImage.Bounds().Dy()
+		if int(fullResTex.Width) != imgWidth || int(fullResTex.Height) != imgHeight {
 			rl.UnloadTexture(fullResTex)
+			fullResTex = rl.LoadTextureFromImage(&rl.Image{
+				Data:    unsafe.Pointer(&rgbaSlice[0]),
+				Width:   int32(imgWidth),
+				Height:  int32(imgHeight),
+				Mipmaps: 1,
+				Format:  rl.PixelFormat(7),
+			})
+		} else {
+			// Update existing texture
+			rl.UpdateTexture(fullResTex, rgbaSlice)
 		}
 
-		// Load new texture
-		fullResTex = rl.LoadTextureFromImage(&rlImg)
-		// rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
-
-		// Begin drawing
+		// Draw everything
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
 
-		// Draw render texture
 		rl.DrawTexturePro(
 			fullResTex,
 			rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height)),
@@ -134,7 +125,7 @@ func Window(scene *core.Scene) {
 			0,
 			rl.White,
 		)
-		// Draw UI elements (always at full resolution)
+
 		rl.DrawFPS(20, 20)
 		draw_debug_stats(scene)
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
@@ -142,7 +133,6 @@ func Window(scene *core.Scene) {
 		rl.EndDrawing()
 	}
 }
-
 func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {
 	// Calculate ideal scale based on FPS (inverse relationship)
 	// These values can be tweaked to get the desired behavior
@@ -225,27 +215,35 @@ func drawKeyboardOverlay(tex rl.Texture2D) {
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)
 }
 
+/*
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
-	bounds := img.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
+	w := img.Bounds().Dx()
+	h := img.Bounds().Dy()
+	src := img.Pix
 	pixels := make([]color.RGBA, w*h)
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			pixels[y*w+x] = color.RGBA{
-				R: uint8(r >> 8),
-				G: uint8(g >> 8),
-				B: uint8(b >> 8),
-				A: uint8(a >> 8),
-			}
+	for i := 0; i < len(pixels); i++ {
+		pixels[i] = color.RGBA{
+			R: src[i*4],
+			G: src[i*4+1],
+			B: src[i*4+2],
+			A: src[i*4+3],
 		}
 	}
+
 	return pixels
 }
-func max(a, b int) int {
-	if a > b {
-		return a
+*/
+
+func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
+	w := img.Bounds().Dx()
+	h := img.Bounds().Dy()
+	src := img.Pix
+	pixels := make([]color.RGBA, w*h)
+
+	for i := 0; i < len(pixels); i++ {
+		pixels[i] = *(*color.RGBA)(unsafe.Pointer(&src[i*4]))
 	}
-	return b
+
+	return pixels
 }

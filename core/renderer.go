@@ -22,6 +22,10 @@ type Renderer3D struct {
 	ambienceFactor       float64
 	ambienceColor        lookdev.ColorRGBA
 
+	CachedRGBA   []color.RGBA
+	cachedWidth  int
+	cachedHeight int
+
 	SSAOEnabled      bool
 	SSAOBuffer       [][]float32 // Stores ambient occlusion values
 	SSAOKernel       []nomath.Vec3
@@ -85,26 +89,35 @@ func (r *Renderer3D) Resize(width, height int) {
 	width = max(1, width)
 	height = max(1, height)
 
-	// Create new buffers
+	// Create new framebuffer
 	newFramebuffer := make([][]lookdev.ColorRGBA, height)
-	newDepthBuffer := make([][]float32, height)
-
 	for y := 0; y < height; y++ {
 		newFramebuffer[y] = make([]lookdev.ColorRGBA, width)
-		newDepthBuffer[y] = make([]float32, width)
+	}
 
-		// Initialize depth buffer
+	// Create new depth buffer
+	newDepthBuffer := make([][]float32, height)
+	for y := 0; y < height; y++ {
+		newDepthBuffer[y] = make([]float32, width)
 		for x := 0; x < width; x++ {
 			newDepthBuffer[y][x] = math.MaxFloat32
 		}
 	}
 
-	// Resize SSAO buffer
-	r.SSAOBuffer = make([][]float32, height)
-	for y := 0; y < height; y++ {
-		r.SSAOBuffer[y] = make([]float32, width)
+	// Create new SSAO buffer if enabled
+	if r.SSAOEnabled {
+		r.SSAOBuffer = make([][]float32, height)
+		for y := 0; y < height; y++ {
+			r.SSAOBuffer[y] = make([]float32, width)
+		}
 	}
 
+	// Update cached RGBA buffer
+	r.cachedWidth = width
+	r.cachedHeight = height
+	r.CachedRGBA = make([]color.RGBA, width*height)
+
+	// Atomic swap of buffers
 	r.Framebuffer = newFramebuffer
 	r.DepthBuffer = newDepthBuffer
 }
@@ -315,7 +328,7 @@ func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
 	for i := 0; i < maxIterations; i++ {
 		// Check bounds using actual dimensions
 		if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
-			r.Framebuffer[y0][x0] = *color
+			r.safeSetPixel(x0, y0, *color)
 		}
 
 		if x0 == x1 && y0 == y1 {
@@ -418,7 +431,7 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 				// Depth test (note reversed comparison for depth buffer)
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
 					color := r.calculateLighting(tri, normal, viewDir)
-					r.Framebuffer[y][x] = *color
+					r.safeSetPixel(x, y, *color)
 					r.DepthBuffer[y][x] = float32(depth)
 				}
 				if depth >= 0 && depth <= 1 {
@@ -676,4 +689,13 @@ func step(edge, x float64) float64 {
 		return 0.0
 	}
 	return 1.0
+}
+
+func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
+	r.bufferMutex.Lock()
+	defer r.bufferMutex.Unlock()
+
+	if x >= 0 && x < r.GetWidth() && y >= 0 && y < r.GetHeight() {
+		r.Framebuffer[y][x] = color
+	}
 }
