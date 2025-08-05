@@ -2,7 +2,9 @@ package core
 
 import (
 	"GopherEngine/assets"
+	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -99,9 +101,15 @@ func (s *Scene) RenderScene() {
 	s.UpdateScene()
 
 	viewDir := s.Camera.Transform.GetForward()
+	s.matrixMutex.RLock()
 	viewProjMatrix := s.cachedViewProjMatrix
+	s.matrixMutex.RUnlock()
 
-	// Precompute light dot normal per triangle
+	mainBuffers := &ThreadLocalBuffers{
+		Framebuffer: s.Renderer.Framebuffer,
+		DepthBuffer: s.Renderer.DepthBuffer,
+	}
+
 	for _, triangle := range s.Triangles {
 		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) ||
 			triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
@@ -111,18 +119,16 @@ func (s *Scene) RenderScene() {
 		modelMatrix := triangle.Parent.Transform.GetMatrix()
 		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
 		normalMatrix := modelMatrix.Inverse().Transpose()
-		// Transform triangle normal using normalMatrix
 		worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
 		triangle.WorldNormal = worldNormal
 
-		// Precompute light dot normal for each light
 		triangle.LightDotNormals = make([]float64, len(s.Lights))
 		for i, light := range s.Lights {
-			lightDir := light.GetDirection() // assuming normalized direction
+			lightDir := light.GetDirection()
 			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
 		}
 
-		s.Renderer.RenderTriangle(&mvpMatrix, s.Camera, triangle, s.Lights, s)
+		s.Renderer.RenderTriangleToBuffers(&mvpMatrix, s.Camera, triangle, s.Lights, s, mainBuffers)
 		s.DrawnTriangles++
 	}
 }
@@ -132,7 +138,9 @@ func (s *Scene) RenderOnThread() {
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
 	s.Renderer.PreComputeLightDirs(s)
 
-	// Safely get the view-projection matrix
+	width := s.Renderer.GetWidth()
+	height := s.Renderer.GetHeight()
+
 	s.matrixMutex.RLock()
 	viewProjMatrix := s.cachedViewProjMatrix
 	s.matrixMutex.RUnlock()
@@ -141,15 +149,13 @@ func (s *Scene) RenderOnThread() {
 	var tasks []RenderTask
 
 	for _, triangle := range s.Triangles {
-		// Skip entire object if not in view
 		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) {
 			continue
 		}
-
-		// Optional: finer culling per triangle
 		if triangle.Normal().Dot(viewDir) > 0 {
 			continue
 		}
+
 		modelMatrix := triangle.Parent.Transform.GetMatrix()
 		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
 
@@ -158,21 +164,110 @@ func (s *Scene) RenderOnThread() {
 			MVP:      mvpMatrix,
 		})
 	}
-	// }
 
 	numWorkers := runtime.NumCPU()
 	var wg sync.WaitGroup
 	workChan := make(chan RenderTask, len(tasks))
+	threadBuffers := make([]*ThreadLocalBuffers, numWorkers)
 
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		threadBuffers[i] = initThreadBuffers(width, height)
+		go func(threadID int) {
+			defer wg.Done()
+			localBuf := threadBuffers[threadID]
+			var localCount int32
+
+			for task := range workChan {
+				s.Renderer.RenderTriangleToBuffers(&task.MVP, s.Camera, task.Triangle, s.Lights, s, localBuf)
+				localCount++
+			}
+			atomic.AddInt32(&s.DrawnTriangles, localCount)
+		}(i)
+	}
+
+	for _, task := range tasks {
+		workChan <- task
+	}
+	close(workChan)
+	wg.Wait()
+
+	// Merge all thread buffers into main buffer
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			bestDepth := float32(math.MaxFloat32)
+			var bestColor lookdev.ColorRGBA
+
+			for _, buf := range threadBuffers {
+				if buf.DepthBuffer[y][x] < bestDepth {
+					bestDepth = buf.DepthBuffer[y][x]
+					bestColor = buf.Framebuffer[y][x]
+				}
+			}
+
+			s.Renderer.Framebuffer[y][x] = bestColor
+			s.Renderer.DepthBuffer[y][x] = bestDepth
+		}
+	}
+}
+
+func (s *Scene) RenderWithTiling(tileSize int) {
+	s.UpdateScene()
+	atomic.StoreInt32(&s.DrawnTriangles, 0)
+	s.Renderer.PreComputeLightDirs(s)
+
+	width := s.Renderer.GetWidth()
+	height := s.Renderer.GetHeight()
+
+	s.matrixMutex.RLock()
+	viewProjMatrix := s.cachedViewProjMatrix
+	s.matrixMutex.RUnlock()
+	viewDir := s.Camera.Transform.GetForward()
+
+	// Group triangles into tasks
+	var tasks []RenderTask
+	for _, tri := range s.Triangles {
+		if !s.Camera.IsVisible(tri.Parent.BoundingBox) ||
+			tri.Normal().Dot(viewDir) > 0 {
+			continue
+		}
+
+		model := tri.Parent.Transform.GetMatrix()
+		mvp := viewProjMatrix.Multiply(model)
+		normalMatrix := model.Inverse().Transpose()
+		worldNormal := normalMatrix.TransformVec3(tri.Normal()).Normalize()
+		tri.WorldNormal = worldNormal
+
+		tri.LightDotNormals = make([]float64, len(s.Lights))
+		for i, light := range s.Lights {
+			tri.LightDotNormals[i] = max(0, worldNormal.Dot(light.GetDirection()))
+		}
+
+		tasks = append(tasks, RenderTask{
+			Triangle: tri,
+			MVP:      mvp,
+		})
+	}
+
+	numWorkers := runtime.NumCPU()
+	var wg sync.WaitGroup
+	tileChan := make(chan [2]int, (width/tileSize)*(height/tileSize))
+
+	// Worker: each processes tiles independently
 	worker := func() {
 		defer wg.Done()
-		var localCount int32
 
-		for task := range workChan {
-			s.Renderer.RenderTriangle(&task.MVP, s.Camera, task.Triangle, s.Lights, s)
-			localCount++
+		for tile := range tileChan {
+			tx, ty := tile[0], tile[1]
+			x0 := tx * tileSize
+			y0 := ty * tileSize
+			x1 := min(x0+tileSize, width)
+			y1 := min(y0+tileSize, height)
+
+			for _, task := range tasks {
+				s.Renderer.RenderTriangleClipped(&task.MVP, s.Camera, task.Triangle, s.Lights, s, x0, y0, x1, y1)
+			}
 		}
-		atomic.AddInt32(&s.DrawnTriangles, localCount)
 	}
 
 	wg.Add(numWorkers)
@@ -180,9 +275,11 @@ func (s *Scene) RenderOnThread() {
 		go worker()
 	}
 
-	for _, task := range tasks {
-		workChan <- task
+	for y := 0; y < height; y += tileSize {
+		for x := 0; x < width; x += tileSize {
+			tileChan <- [2]int{x / tileSize, y / tileSize}
+		}
 	}
-	close(workChan)
+	close(tileChan)
 	wg.Wait()
 }

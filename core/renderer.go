@@ -12,6 +12,28 @@ import (
 	"sync"
 )
 
+type ThreadLocalBuffers struct {
+	Framebuffer [][]lookdev.ColorRGBA
+	DepthBuffer [][]float32
+}
+
+func initThreadBuffers(width, height int) *ThreadLocalBuffers {
+	fb := make([][]lookdev.ColorRGBA, height)
+	db := make([][]float32, height)
+
+	for y := 0; y < height; y++ {
+		fb[y] = make([]lookdev.ColorRGBA, width)
+		db[y] = make([]float32, width)
+		for x := 0; x < width; x++ {
+			db[y][x] = math.MaxFloat32
+		}
+	}
+	return &ThreadLocalBuffers{
+		Framebuffer: fb,
+		DepthBuffer: db,
+	}
+}
+
 type Renderer3D struct {
 	Framebuffer          [][]lookdev.ColorRGBA // Changed to value type
 	DepthBuffer          [][]float32           // Changed to float32 for better cache usage
@@ -299,7 +321,14 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		}
 	}
 }
-func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
+func (r *Renderer3D) RenderTriangleToBuffers(
+	mvpMatrix *nomath.Mat4,
+	camera *PerspectiveCamera,
+	tri *assets.Triangle,
+	lights []*Light,
+	scene *Scene,
+	target *ThreadLocalBuffers,
+) {
 	nearPlane := camera.NearPlane
 
 	// Transform vertices to clip space
@@ -331,7 +360,7 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		for i := 0; i < 3; i++ {
 			screenVerts[i] = clipVerts[i].ToVec3()
 		}
-		r.rasterizeTriangle(screenVerts, tri, lights, camera)
+		r.rasterizeTriangleToBuffers(screenVerts, tri, lights, camera, target)
 		return
 	}
 
@@ -371,6 +400,56 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		// Split quad into 2 triangles
 		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
 		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
+	}
+}
+
+func (r *Renderer3D) rasterizeTriangleToBuffers(
+	verts [3]nomath.Vec3,
+	tri *assets.Triangle,
+	lights []*Light,
+	camera *PerspectiveCamera,
+	target *ThreadLocalBuffers,
+) {
+	x0, y0 := r.NDCToScreen(verts[0])
+	x1, y1 := r.NDCToScreen(verts[1])
+	x2, y2 := r.NDCToScreen(verts[2])
+
+	minX := max(0, min(x0, min(x1, x2)))
+	maxX := min(r.GetWidth()-1, max(x0, max(x1, x2)))
+	minY := max(0, min(y0, min(y1, y2)))
+	maxY := min(r.GetHeight()-1, max(y0, max(y1, y2)))
+
+	if minX > maxX || minY > maxY {
+		return
+	}
+
+	v0Screen := nomath.Vec2{U: float64(x0), V: float64(y0)}
+	v1Screen := nomath.Vec2{U: float64(x1), V: float64(y1)}
+	v2Screen := nomath.Vec2{U: float64(x2), V: float64(y2)}
+
+	depth0 := (verts[0].Z + 1) * 0.5
+	depth1 := (verts[1].Z + 1) * 0.5
+	depth2 := (verts[2].Z + 1) * 0.5
+
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			p := nomath.Vec2{U: float64(x), V: float64(y)}
+			u, v, w := tri.Barycentric(p, v0Screen, v1Screen, v2Screen)
+
+			if u >= 0 && v >= 0 && w >= 0 {
+				depth := u*depth0 + v*depth1 + w*depth2
+				if depth >= 0 && depth <= 1 && depth < float64(target.DepthBuffer[y][x]) {
+					var color *lookdev.ColorRGBA
+					if len(tri.LightDotNormals) == len(lights) {
+						color = r.calculateLightingWithPrecomputed(tri, lights)
+					} else {
+						color = r.calculateLighting(tri, tri.WorldNormal, camera.Transform.GetForward(), lights)
+					}
+					target.Framebuffer[y][x] = *color
+					target.DepthBuffer[y][x] = float32(depth)
+				}
+			}
+		}
 	}
 }
 
@@ -475,4 +554,98 @@ func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	r.rowLocks[y].Lock()
 	r.Framebuffer[y][x] = color
 	r.rowLocks[y].Unlock()
+}
+
+func (r *Renderer3D) RenderTriangleClipped(mvp *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene, clipX0, clipY0, clipX1, clipY1 int) {
+	nearPlane := camera.NearPlane
+
+	v0 := mvp.MultiplyVec4(tri.V0.ToVec4(1.0))
+	v1 := mvp.MultiplyVec4(tri.V1.ToVec4(1.0))
+	v2 := mvp.MultiplyVec4(tri.V2.ToVec4(1.0))
+
+	clipVerts := [3]nomath.Vec4{v0, v1, v2}
+	screenVerts := [3]nomath.Vec3{}
+
+	inFront := [3]bool{}
+	numInFront := 0
+	for i := 0; i < 3; i++ {
+		if clipVerts[i].Z > -nearPlane {
+			inFront[i] = true
+			numInFront++
+		}
+	}
+	if numInFront == 0 {
+		return
+	}
+
+	getIntersect := func(a, b nomath.Vec4) nomath.Vec3 {
+		t := (-nearPlane - a.Z) / (b.Z - a.Z)
+		return a.Add(b.Sub(a).Multiply(t)).Divide(a.Add(b.Sub(a).Multiply(t)).W).ToVec3()
+	}
+
+	var newVerts []nomath.Vec3
+	if numInFront < 3 {
+		for i := 0; i < 3; i++ {
+			curr := clipVerts[i]
+			next := clipVerts[(i+1)%3]
+			if inFront[i] {
+				newVerts = append(newVerts, curr.ToVec3())
+			}
+			if inFront[i] != inFront[(i+1)%3] {
+				newVerts = append(newVerts, getIntersect(curr, next))
+			}
+		}
+	} else {
+		for i := 0; i < 3; i++ {
+			screenVerts[i] = clipVerts[i].ToVec3()
+		}
+	}
+
+	switch len(newVerts) {
+	case 3:
+		r.rasterizeTriangleClipped([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera, clipX0, clipY0, clipX1, clipY1)
+	case 4:
+		r.rasterizeTriangleClipped([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera, clipX0, clipY0, clipX1, clipY1)
+		r.rasterizeTriangleClipped([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera, clipX0, clipY0, clipX1, clipY1)
+	default:
+		r.rasterizeTriangleClipped(screenVerts, tri, lights, camera, clipX0, clipY0, clipX1, clipY1)
+	}
+}
+
+func (r *Renderer3D) rasterizeTriangleClipped(verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera, clipX0, clipY0, clipX1, clipY1 int) {
+	x0, y0 := r.NDCToScreen(verts[0])
+	x1, y1 := r.NDCToScreen(verts[1])
+	x2, y2 := r.NDCToScreen(verts[2])
+
+	minX := max(clipX0, min(x0, min(x1, x2)))
+	maxX := min(clipX1-1, max(x0, max(x1, x2)))
+	minY := max(clipY0, min(y0, min(y1, y2)))
+	maxY := min(clipY1-1, max(y0, max(y1, y2)))
+
+	if minX > maxX || minY > maxY {
+		return
+	}
+
+	v0 := nomath.Vec2{U: float64(x0), V: float64(y0)}
+	v1 := nomath.Vec2{U: float64(x1), V: float64(y1)}
+	v2 := nomath.Vec2{U: float64(x2), V: float64(y2)}
+
+	depth0 := (verts[0].Z + 1) * 0.5
+	depth1 := (verts[1].Z + 1) * 0.5
+	depth2 := (verts[2].Z + 1) * 0.5
+
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			p := nomath.Vec2{U: float64(x), V: float64(y)}
+			u, v, w := tri.Barycentric(p, v0, v1, v2)
+			if u >= 0 && v >= 0 && w >= 0 {
+				depth := u*depth0 + v*depth1 + w*depth2
+				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
+					color := r.calculateLightingWithPrecomputed(tri, lights)
+					r.safeSetPixel(x, y, *color)
+					r.DepthBuffer[y][x] = float32(depth)
+				}
+			}
+		}
+	}
 }

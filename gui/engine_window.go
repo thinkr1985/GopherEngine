@@ -91,8 +91,8 @@ func Window(scene *core.Scene) {
 		// Render 3D scene
 		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
 		scene.Grid.Draw(scene.Renderer, scene.Camera)
-		scene.RenderScene()
-
+		// scene.RenderWithTiling(128)
+		scene.RenderOnThread()
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
 		rgbaSlice := convertToColorRGBASlice(rawImage)
