@@ -2,10 +2,10 @@ package gui
 
 import (
 	"GopherEngine/core"
-	"GopherEngine/lookdev"
+	"fmt"
 	"image"
 	"image/color"
-	_ "math"
+	"math"
 	"unsafe"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -16,8 +16,6 @@ var debugFont rl.Font
 var isFirstFrame = true
 
 func initWindow() {
-
-	// rl.SetConfigFlags(rl.FlagMsaa4xHint) // 4X anti-aliasing .. can reduce FPS.
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -27,7 +25,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(120) // uncapped
+	rl.SetTargetFPS(120)
 
 }
 
@@ -36,6 +34,14 @@ func Window(scene *core.Scene) {
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
+	// Initialize resolution scaling
+	scene.ResolutionScale = 1.0
+	scene.AutoResolution = false
+	scene.LastFPS = 60
+	scene.MinResolutionScale = 0.1
+	scene.LastScaleChange = rl.GetTime()
+	scene.FPSHistory = make([]int, 0, 10)
+
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
 		for _, tex := range keyboardTextures {
@@ -43,69 +49,166 @@ func Window(scene *core.Scene) {
 		}
 	}()
 
-	// Declare texture variable at function scope
-	var tex rl.Texture2D
-	defer rl.UnloadTexture(tex)
+	// Create initial texture
+	var fullResTex rl.Texture2D
+	defer rl.UnloadTexture(fullResTex)
+
+	// Start with a 1x1 black texture
+	initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
+	fullResTex = rl.LoadTextureFromImage(&rl.Image{
+		Data:    unsafe.Pointer(&initialPixels[0]),
+		Width:   1,
+		Height:  1,
+		Mipmaps: 1,
+		Format:  rl.PixelFormat(7),
+	})
 
 	for !rl.WindowShouldClose() {
+		frameTime := rl.GetFrameTime()
+		currentTime := rl.GetTime()
+		currentFPS := rl.GetFPS()
+
+		// Update FPS history
+		if len(scene.FPSHistory) >= 120 {
+			scene.FPSSum -= scene.FPSHistory[0]
+			scene.FPSHistory = scene.FPSHistory[1:]
+		}
+		scene.FPSHistory = append(scene.FPSHistory, int(currentFPS))
+		scene.FPSSum += int(currentFPS)
+
+		// Handle auto-resolution
+		if scene.AutoResolution {
+			if currentTime-scene.LastScaleChange > 0.5 {
+				smoothedFPS := scene.FPSSum / len(scene.FPSHistory)
+				updateTargetResolution(scene, smoothedFPS, currentTime)
+			}
+			adjustResolutionGradually(scene, float64(frameTime))
+		}
+
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
-		// Clear to red (should be visible now)
-		scene.Renderer.Clear(lookdev.ColorRGBA{R: 60, G: 73, B: 78, A: 1.0})
-
-		// Draw 3D content
+		// Render 3D scene
 		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
 		scene.Grid.Draw(scene.Renderer, scene.Camera)
 		scene.RenderScene()
 
-		// Get the rendered image
-		renderedImage := scene.Renderer.ToImage()
+		// Get rendered image and convert to RGBA
+		rawImage := scene.Renderer.ToImage()
+		rgbaSlice := convertToColorRGBASlice(rawImage)
 
-		// Debug check
-		if renderedImage.Bounds().Empty() {
-			panic("Renderer produced empty image!")
+		// Check if we need to resize texture
+		imgWidth := rawImage.Bounds().Dx()
+		imgHeight := rawImage.Bounds().Dy()
+		if int(fullResTex.Width) != imgWidth || int(fullResTex.Height) != imgHeight {
+			rl.UnloadTexture(fullResTex)
+			fullResTex = rl.LoadTextureFromImage(&rl.Image{
+				Data:    unsafe.Pointer(&rgbaSlice[0]),
+				Width:   int32(imgWidth),
+				Height:  int32(imgHeight),
+				Mipmaps: 1,
+				Format:  rl.PixelFormat(7),
+			})
+		} else {
+			// Update existing texture
+			rl.UpdateTexture(fullResTex, rgbaSlice)
 		}
 
-		// Convert to raylib texture format
-		rgbaSlice := convertToColorRGBASlice(renderedImage)
-		rlImg := rl.Image{
-			Data:    unsafe.Pointer(&rgbaSlice[0]),
-			Width:   int32(renderedImage.Bounds().Dx()),
-			Height:  int32(renderedImage.Bounds().Dy()),
-			Mipmaps: 1,
-			Format:  rl.UncompressedR8g8b8a8,
-		}
-
-		// Unload previous texture if it exists
-		if tex.ID != 0 {
-			rl.UnloadTexture(tex)
-		}
-
-		// Load new texture
-		tex = rl.LoadTextureFromImage(&rlImg)
-
-		// Begin drawing
+		// Draw everything
 		rl.BeginDrawing()
-		// rl.ClearBackground(rl.Black) // Window clear
+		rl.ClearBackground(rl.Black)
 
-		// Draw our rendered texture
-		rl.DrawTexture(tex, 0, 0, rl.White)
+		rl.DrawTexturePro(
+			fullResTex,
+			rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height)),
+			rl.NewRectangle(0, 0, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight())),
+			rl.NewVector2(0, 0),
+			0,
+			rl.White,
+		)
 
-		// Draw UI elements
 		rl.DrawFPS(20, 20)
-		draw_debug_stats()
+		draw_debug_stats(scene)
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
 
 		rl.EndDrawing()
 	}
 }
 
-func draw_debug_stats() {
-	statsText := core.GetMachineStats()
+func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {
+	// Calculate ideal scale based on FPS (inverse relationship)
+	// These values can be tweaked to get the desired behavior
+	minFPS := 15.0
+	maxFPS := 40.0
+	fpsRatio := math.Min(1.0, math.Max(0.0,
+		(float64(currentFPS)-minFPS)/(maxFPS-minFPS)))
+
+	// Map FPS ratio to resolution scale (quadratic easing for smoother transitions)
+	newTarget := scene.MinResolutionScale +
+		(1.0-scene.MinResolutionScale)*fpsRatio*fpsRatio
+
+	// Only update target if significantly different
+	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.05 {
+		scene.TargetResolutionScale = newTarget
+		scene.LastScaleChange = currentTime
+	}
+}
+
+func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
+	// Calculate maximum allowed change this frame
+	maxChange := scene.ResolutionChangeSpeed * frameTime
+
+	if scene.ResolutionScale < scene.TargetResolutionScale {
+		// Move upward toward target
+		scene.ResolutionScale = math.Min(
+			scene.TargetResolutionScale,
+			scene.ResolutionScale+maxChange)
+	} else if scene.ResolutionScale > scene.TargetResolutionScale {
+		// Move downward toward target
+		scene.ResolutionScale = math.Max(
+			scene.TargetResolutionScale,
+			scene.ResolutionScale-maxChange)
+	}
+
+	// Ensure we stay within bounds
+	scene.ResolutionScale = math.Max(scene.MinResolutionScale,
+		math.Min(1.0, scene.ResolutionScale))
+
+	// Resize will happen in next handleWindowResize call
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func draw_debug_stats(scene *core.Scene) {
+	avgFPS := 0
+	if len(scene.FPSHistory) > 0 {
+		avgFPS = scene.FPSSum / len(scene.FPSHistory)
+	}
+
+	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v",
+		core.GetMachineStats(),
+		rl.GetFPS(),
+		avgFPS,
+		scene.ResolutionScale*100,
+		scene.TargetResolutionScale*100,
+		scene.AutoResolution,
+		scene.DrawnTriangles,
+		len(scene.Triangles))
+
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+80, 80, rl.NewColor(0, 0, 0, 60))
+	rl.DrawRectangle(10, 10, textWidth+80, 150, rl.NewColor(0, 0, 0, 60))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
+
+	// Show scaling info if in auto mode
+	if scene.AutoResolution {
+		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 140), 12, 2, rl.LightGray)
+	}
 }
 
 func drawKeyboardOverlay(tex rl.Texture2D) {
@@ -114,27 +217,35 @@ func drawKeyboardOverlay(tex rl.Texture2D) {
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)
 }
 
+/*
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
-	bounds := img.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
+	w := img.Bounds().Dx()
+	h := img.Bounds().Dy()
+	src := img.Pix
 	pixels := make([]color.RGBA, w*h)
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			pixels[y*w+x] = color.RGBA{
-				R: uint8(r >> 8),
-				G: uint8(g >> 8),
-				B: uint8(b >> 8),
-				A: uint8(a >> 8),
-			}
+	for i := 0; i < len(pixels); i++ {
+		pixels[i] = color.RGBA{
+			R: src[i*4],
+			G: src[i*4+1],
+			B: src[i*4+2],
+			A: src[i*4+3],
 		}
 	}
+
 	return pixels
 }
-func max(a, b int) int {
-	if a > b {
-		return a
+*/
+
+func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
+	w := img.Bounds().Dx()
+	h := img.Bounds().Dy()
+	src := img.Pix
+	pixels := make([]color.RGBA, w*h)
+
+	for i := 0; i < len(pixels); i++ {
+		pixels[i] = *(*color.RGBA)(unsafe.Pointer(&src[i*4]))
 	}
-	return b
+
+	return pixels
 }

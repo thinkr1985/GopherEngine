@@ -10,12 +10,14 @@ var frustumMutex sync.Mutex
 
 type PerspectiveCamera struct {
 	Name          string
+	Scene         *Scene
 	Transform     *nomath.Transform
 	FocalLength   int
 	NearPlane     float64
 	FarPlane      float64
 	frustumPlanes [6]nomath.Vec4 // Stores precomputed frustum planes
-	dirtyFrustum  bool           // Flag to avoid recalculating planes unnecessarily
+	DirtyFrustum  bool           // Flag to avoid recalculating planes unnecessarily
+	mutex         sync.Mutex
 }
 
 func NewPerspectiveCamera() *PerspectiveCamera {
@@ -24,7 +26,7 @@ func NewPerspectiveCamera() *PerspectiveCamera {
 		FocalLength:  75,      // Reasonable default
 		NearPlane:    0.1,     // Should be > 0
 		FarPlane:     10000.0, // Large enough to see distant objects
-		dirtyFrustum: true,
+		DirtyFrustum: true,
 	}
 	cam.Transform.Position = nomath.Vec3{Z: 10, Y: 10} // Start 10 units back
 	cam.Transform.Dirty = true
@@ -45,24 +47,21 @@ const (
 func (c *PerspectiveCamera) GetViewMatrix() nomath.Mat4 {
 	c.Transform.UpdateModelMatrix()
 	view := c.Transform.GetMatrix().Inverse()
-	c.dirtyFrustum = true // View matrix changed, need to update planes
+	c.DirtyFrustum = true // View matrix changed, need to update planes
 	return view
 }
 
 // GetProjectionMatrix returns the camera's projection matrix
 func (c *PerspectiveCamera) GetProjectionMatrix() nomath.Mat4 {
-	aspectRatio := float64(SCREEN_WIDTH) / float64(SCREEN_HEIGHT)
-	fov := float64(c.FocalLength) * math.Pi / 180.0
-	f := 1.0 / math.Tan(fov/2.0)
+	aspect := float64(SCREEN_WIDTH) / float64(SCREEN_HEIGHT)
+	f := 1.0 / math.Tan(float64(c.FocalLength)*math.Pi/360.0)
 
-	proj := nomath.Mat4{
-		f / aspectRatio, 0, 0, 0,
+	return nomath.Mat4{
+		f / aspect, 0, 0, 0,
 		0, f, 0, 0,
 		0, 0, (c.FarPlane + c.NearPlane) / (c.NearPlane - c.FarPlane), -1,
 		0, 0, (2 * c.FarPlane * c.NearPlane) / (c.NearPlane - c.FarPlane), 0,
 	}
-	c.dirtyFrustum = true // Projection changed, need to update planes
-	return proj
 }
 
 func (c *PerspectiveCamera) GetFrustumPlanes() [6]nomath.Vec4 {
@@ -74,7 +73,7 @@ func (c *PerspectiveCamera) GetFrustumPlanes() [6]nomath.Vec4 {
 
 // UpdateFrustumPlanes calculates the 6 frustum planes in world space
 func (c *PerspectiveCamera) UpdateFrustumPlanes() {
-	if !c.dirtyFrustum {
+	if !c.DirtyFrustum {
 		return
 	}
 
@@ -132,11 +131,13 @@ func (c *PerspectiveCamera) UpdateFrustumPlanes() {
 		W: viewProj[15] - viewProj[14],
 	}.Normalize()
 
-	c.dirtyFrustum = false
+	c.DirtyFrustum = false
 }
 
 // IsVisible checks if a bounding box is visible in the frustum
 func (c *PerspectiveCamera) IsVisible(box *nomath.BoundingBox) bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	c.UpdateFrustumPlanes()
 	center := box.Center()
 	extents := box.Size().Multiply(0.5)
@@ -156,4 +157,29 @@ func (c *PerspectiveCamera) IsVisible(box *nomath.BoundingBox) bool {
 		}
 	}
 	return true
+}
+
+func (c *PerspectiveCamera) CacheMatrices() {
+	c.UpdateFrustumPlanes()
+
+	viewMatrix := c.GetViewMatrix()
+	projectionMatrix := c.GetProjectionMatrix()
+	viewProjMatrix := projectionMatrix.Multiply(viewMatrix)
+
+	c.Scene.matrixMutex.Lock()
+	defer c.Scene.matrixMutex.Unlock()
+
+	c.Scene.cachedViewMatrix = viewMatrix
+	c.Scene.cachedProjectionMatrix = projectionMatrix
+	c.Scene.cachedViewProjMatrix = viewProjMatrix
+	c.DirtyFrustum = false
+}
+
+func (c *PerspectiveCamera) Update() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.Transform.UpdateModelMatrix()
+	c.CacheMatrices()
+
 }

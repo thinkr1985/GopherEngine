@@ -34,14 +34,21 @@ func generateKeybaordTextureMap() map[string]rl.Texture2D {
 }
 
 func HandleInputEvents(scene *core.Scene) {
-	currentKeyboardImage = "default" // reset every frame
+	currentKeyboardImage = "default"
 
-	// Check if window is focused before handling input
 	if !rl.IsWindowFocused() {
 		return
 	}
 
-	// Handle events with proper checks
+	if rl.IsKeyPressed(rl.KeyF1) {
+		scene.AutoResolution = !scene.AutoResolution
+		if !scene.AutoResolution {
+			// Reset to full resolution when turning off auto-scaling
+			scene.ResolutionScale = 1.0
+		}
+		handleWindowResize(scene)
+	}
+
 	if rl.IsWindowReady() {
 		HandleKeyboardEvents(scene)
 		HandleMouseEvents(scene)
@@ -61,31 +68,37 @@ func HandleKeyboardEvents(scene *core.Scene) {
 		// Move in camera's forward direction (use positive forward vector)
 		scene.Camera.Transform.Translate(forward.Multiply(moveSpeed))
 		currentKeyboardImage = "W"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyS) {
 		// Move in camera's backward direction
 		scene.Camera.Transform.Translate(forward.Multiply(-moveSpeed))
 		currentKeyboardImage = "S"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyA) {
 		// Move left (negative right vector)
 		scene.Camera.Transform.Translate(right.Multiply(-moveSpeed))
 		currentKeyboardImage = "A"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyD) {
 		// Move right (positive right vector)
 		scene.Camera.Transform.Translate(right.Multiply(moveSpeed))
 		currentKeyboardImage = "D"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// Rotation controls (unchanged)
 	if rl.IsKeyDown(rl.KeyRight) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
 		currentKeyboardImage = "arrowRight"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyLeft) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: rotateSpeed})
 		currentKeyboardImage = "arrowLeft"
+		scene.Camera.DirtyFrustum = true
 	}
 	if rl.IsKeyDown(rl.KeyUp) {
 		currentKeyboardImage = "upArrow"
@@ -118,6 +131,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		pan := right.Add(up)
 		scene.Camera.Transform.Translate(pan)
 		currentKeyboardImage = "scroll"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// --- Scroll to zoom ---
@@ -127,6 +141,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		forward := scene.Camera.Transform.GetForward().Multiply(float64(scroll) * zoomSpeed)
 		scene.Camera.Transform.Translate(forward)
 		currentKeyboardImage = "scroll"
+		scene.Camera.DirtyFrustum = true
 	}
 
 	// --- Left drag to rotate around Y axis ---
@@ -143,28 +158,32 @@ func HandleMouseEvents(scene *core.Scene) {
 
 	lastMousePos = mousePos
 }
-
 func handleWindowResize(scene *core.Scene) {
 	if !rl.IsWindowReady() {
 		return
 	}
-	if rl.IsWindowResized() {
-		newWidth := max(300, int(rl.GetScreenWidth()))
-		newHeight := max(200, int(rl.GetScreenHeight()))
 
-		// Only resize if dimensions actually changed
-		if newWidth != core.SCREEN_WIDTH || newHeight != core.SCREEN_HEIGHT {
-			core.SCREEN_WIDTH = newWidth
-			core.SCREEN_HEIGHT = newHeight
+	newWidth := max(300, int(rl.GetScreenWidth()))
+	newHeight := max(200, int(rl.GetScreenHeight()))
 
-			// Resize render buffers
-			scene.Renderer.Resize(newWidth, newHeight)
+	// Update global dimensions
+	core.SCREEN_WIDTH = newWidth
+	core.SCREEN_HEIGHT = newHeight
 
-			// Update camera projection
-			scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
-				float64(newWidth) / float64(core.SCREEN_WIDTH))
-			scene.Camera.Transform.UpdateModelMatrix()
-			scene.Camera.UpdateFrustumPlanes()
-		}
-	}
+	// Calculate render dimensions based on resolution scale
+	renderWidth := int(float64(newWidth) * scene.ResolutionScale)
+	renderHeight := int(float64(newHeight) * scene.ResolutionScale)
+
+	// Ensure minimum size
+	renderWidth = max(1, renderWidth)
+	renderHeight = max(1, renderHeight)
+
+	// Resize render buffers
+	scene.Renderer.Resize(renderWidth, renderHeight)
+
+	// Update camera projection
+	scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
+		float64(newWidth) / float64(core.SCREEN_WIDTH))
+	scene.Camera.Transform.UpdateModelMatrix()
+	scene.Camera.UpdateFrustumPlanes()
 }

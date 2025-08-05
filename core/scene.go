@@ -2,10 +2,23 @@ package core
 
 import (
 	"GopherEngine/assets"
+	"GopherEngine/nomath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 )
 
-var SCREEN_WIDTH int = 800
-var SCREEN_HEIGHT int = 600
+var SCREEN_WIDTH int = 854
+var SCREEN_HEIGHT int = 480
+
+type RenderTask struct {
+	Triangle *assets.Triangle
+	MVP      nomath.Mat4
+	// Add any other frequently used precomputed data here
+	NormalMatrix nomath.Mat4 // Optional: for normal transformations
+	LightDots    []float64   // Optional: precomputed light factors
+	ModelMatrix  nomath.Mat4
+}
 
 type Scene struct {
 	Renderer       *Renderer3D
@@ -17,37 +30,159 @@ type Scene struct {
 	Lights         []*Light
 	Triangles      []*assets.Triangle
 	DrawnTriangles int32
+
+	// caching matrices
+	cachedViewMatrix       nomath.Mat4
+	cachedProjectionMatrix nomath.Mat4
+	cachedViewProjMatrix   nomath.Mat4
+
+	// Resolution scaling settings
+	ResolutionScale       float64 // Current scale (1.0 = full, 0.5 = half, etc.)
+	AutoResolution        bool    // Whether auto-scaling is enabled
+	LastFPS               int     // Track last FPS reading
+	MinResolutionScale    float64 // Minimum allowed resolution (e.g., 0.1 for 10%)
+	LastScaleChange       float64 // Time since last resolution change (now float64)
+	FPSHistory            []int   // Store last few FPS readings for smoothing
+	FPSSum                int     // Sum of FPS history for averaging
+	TargetResolutionScale float64 // The scale we're gradually moving toward
+	ResolutionChangeSpeed float64 // How fast we adjust resolution (0.1 = 10% per second)
+	matrixMutex           sync.RWMutex
 }
 
 func NewScene() *Scene {
-	return &Scene{
+	default_light := NewDirectionalLight()
+
+	s := Scene{
 		Renderer:     NewRenderer3D(),
 		Camera:       NewPerspectiveCamera(),
-		DefaultLight: NewPointLight(),
+		DefaultLight: default_light,
+		Lights:       []*Light{default_light},
 		ViewAxes:     NewViewAxes(),
 		Grid:         NewGrid(),
+
+		// Resolution scaling defaults
+		ResolutionScale:       1.0,
+		AutoResolution:        false,
+		LastScaleChange:       0.0, // Initialize as float64
+		MinResolutionScale:    0.1, // Never go below 10%
+		FPSHistory:            make([]int, 0, 10),
+		TargetResolutionScale: 1.0,
+		ResolutionChangeSpeed: 0.25, // Adjust scale by up to 50% per second
 	}
+	s.Renderer.PreComputeLightDirs(&s)
+	s.Camera.Scene = &s
+	return &s
 }
 
 func (s *Scene) UpdateScene() {
+	// Update camera first
+	s.Camera.Update()
 
-	// Update the Lights
+	// Update other objects
 	for _, light := range s.Lights {
-		light.Transform.UpdateModelMatrix()
+		light.Update()
 	}
+	for _, obj := range s.Objects {
+		obj.Update()
+	}
+	s.Renderer.PreComputeLightDirs(s)
+}
 
-	// Update the Camera
-	s.Camera.Transform.UpdateModelMatrix()
-	s.Camera.UpdateFrustumPlanes()
+func (s *Scene) AddObject(geom *assets.Geometry) {
+	geom.PrecomputeTextureBuffers()
+	s.Objects = append(s.Objects, geom)
+	s.Triangles = append(s.Triangles, geom.Triangles...)
 }
 
 func (s *Scene) RenderScene() {
+	s.DrawnTriangles = 0
 	s.UpdateScene()
-	for _, obj := range s.Objects {
-		if s.Camera.IsVisible(obj.BoundingBox) {
-			obj.Update()
-			s.Renderer.RenderGeometry(obj)
+
+	viewDir := s.Camera.Transform.GetForward()
+	viewProjMatrix := s.cachedViewProjMatrix
+
+	// Precompute light dot normal per triangle
+	for _, triangle := range s.Triangles {
+		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) ||
+			triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+			continue
 		}
+
+		modelMatrix := triangle.Parent.Transform.GetMatrix()
+		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+		normalMatrix := modelMatrix.Inverse().Transpose()
+		// Transform triangle normal using normalMatrix
+		worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
+		triangle.WorldNormal = worldNormal
+
+		// Precompute light dot normal for each light
+		triangle.LightDotNormals = make([]float64, len(s.Lights))
+		for i, light := range s.Lights {
+			lightDir := light.GetDirection() // assuming normalized direction
+			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+		}
+
+		s.Renderer.RenderTriangle(&mvpMatrix, s.Camera, triangle, s.Lights, s)
+		s.DrawnTriangles++
+	}
+}
+
+func (s *Scene) RenderOnThread() {
+	s.UpdateScene()
+	atomic.StoreInt32(&s.DrawnTriangles, 0)
+	s.Renderer.PreComputeLightDirs(s)
+
+	// Safely get the view-projection matrix
+	s.matrixMutex.RLock()
+	viewProjMatrix := s.cachedViewProjMatrix
+	s.matrixMutex.RUnlock()
+	viewDir := s.Camera.Transform.GetForward()
+
+	var tasks []RenderTask
+
+	for _, triangle := range s.Triangles {
+		// Skip entire object if not in view
+		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) {
+			continue
+		}
+
+		// Optional: finer culling per triangle
+		if triangle.Normal().Dot(viewDir) > 0 {
+			continue
+		}
+		modelMatrix := triangle.Parent.Transform.GetMatrix()
+		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+
+		tasks = append(tasks, RenderTask{
+			Triangle: triangle,
+			MVP:      mvpMatrix,
+		})
+	}
+	// }
+
+	numWorkers := runtime.NumCPU()
+	var wg sync.WaitGroup
+	workChan := make(chan RenderTask, len(tasks))
+
+	worker := func() {
+		defer wg.Done()
+		var localCount int32
+
+		for task := range workChan {
+			s.Renderer.RenderTriangle(&task.MVP, s.Camera, task.Triangle, s.Lights, s)
+			localCount++
+		}
+		atomic.AddInt32(&s.DrawnTriangles, localCount)
 	}
 
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go worker()
+	}
+
+	for _, task := range tasks {
+		workChan <- task
+	}
+	close(workChan)
+	wg.Wait()
 }

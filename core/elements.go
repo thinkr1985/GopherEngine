@@ -45,7 +45,6 @@ func (va *ViewAxes) Update(camera *PerspectiveCamera) {
 		nomath.Vec3{}, forward.Multiply(-scale), // Z axis (forward)
 	}
 }
-
 func (va *ViewAxes) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 	if !va.Enabled || renderer == nil || camera == nil {
 		return
@@ -53,7 +52,7 @@ func (va *ViewAxes) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 
 	va.Update(camera)
 
-	// Convert screen position to pixel coordinates
+	// Convert screen position to pixel coordinates using renderer dimensions
 	screenX := int(va.ScreenPos.U * float64(renderer.GetWidth()))
 	screenY := int(va.ScreenPos.V * float64(renderer.GetHeight()))
 
@@ -62,10 +61,10 @@ func (va *ViewAxes) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 		start := va.cameraAxes[i*2]
 		end := va.cameraAxes[i*2+1]
 
-		// Convert to screen space
+		// Convert to screen space using renderer dimensions
 		startScreen := nomath.Vec3{
 			X: float64(screenX) + start.X,
-			Y: float64(screenY) - start.Y, // Flip Y for screen coordinates
+			Y: float64(screenY) - start.Y,
 			Z: 0,
 		}
 		endScreen := nomath.Vec3{
@@ -74,21 +73,20 @@ func (va *ViewAxes) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 			Z: 0,
 		}
 
-		// Draw 2D lines (bypassing 3D projection)
 		renderer.DrawLine2D(
 			int(startScreen.X), int(startScreen.Y),
 			int(endScreen.X), int(endScreen.Y),
 			&va.Colors[i],
 		)
 
-		// Draw axis labels
+		// Draw labels
 		labelPos := nomath.Vec3{
 			X: float64(screenX) + end.X*1.2,
 			Y: float64(screenY) - end.Y*1.2,
 			Z: 0,
 		}
 		renderer.DrawText2D(
-			string([]byte{'X' + byte(i)}), // "X", "Y", or "Z"
+			string([]byte{'X' + byte(i)}),
 			int(labelPos.X), int(labelPos.Y),
 			&va.Colors[i],
 		)
@@ -111,7 +109,7 @@ type LineSegment struct {
 func NewGrid() *Grid {
 	g := &Grid{
 		Enabled:     true,
-		Color:       lookdev.ColorRGBA{R: 200, G: 200, B: 200, A: 1.0}, // Brighter color
+		Color:       lookdev.ColorRGBA{R: 191, G: 196, B: 197, A: 1.0}, // Brighter color
 		CenterColor: lookdev.ColorRGBA{R: 255, G: 0, B: 0, A: 1.0},     // Red center lines
 	}
 	g.BuildGrid(21, 5.0) // 21x21 grid with spacing 1.0

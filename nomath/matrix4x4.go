@@ -182,3 +182,26 @@ func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 		W: v.X*m[3] + v.Y*m[7] + v.Z*m[11] + v.W*m[15],
 	}
 }
+
+// TransformVec3 transforms a Vec3 using the 3x3 portion of the matrix (ignoring translation).
+func (m Mat4) TransformVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z,
+	}
+}
+
+// Optimized MultiplyVec4 for batch transformations
+func (m Mat4) MultiplyVec4Batch(vectors []Vec4) []Vec4 {
+	results := make([]Vec4, len(vectors))
+	for i, v := range vectors {
+		results[i] = Vec4{
+			X: v.X*m[0] + v.Y*m[4] + v.Z*m[8] + v.W*m[12],
+			Y: v.X*m[1] + v.Y*m[5] + v.Z*m[9] + v.W*m[13],
+			Z: v.X*m[2] + v.Y*m[6] + v.Z*m[10] + v.W*m[14],
+			W: v.X*m[3] + v.Y*m[7] + v.Z*m[11] + v.W*m[15],
+		}
+	}
+	return results
+}
