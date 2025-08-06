@@ -13,12 +13,11 @@ var SCREEN_WIDTH int = 854
 var SCREEN_HEIGHT int = 480
 
 type RenderTask struct {
-	Triangle *assets.Triangle
-	MVP      nomath.Mat4
-	// Add any other frequently used precomputed data here
-	NormalMatrix nomath.Mat4 // Optional: for normal transformations
-	LightDots    []float64   // Optional: precomputed light factors
-	ModelMatrix  nomath.Mat4
+	Triangle     *assets.Triangle
+	MVP          nomath.Mat4
+	NormalMatrix nomath.Mat4 // For normal transformations
+	ModelMatrix  nomath.Mat4 // For world position calculations
+	LightDots    []float64   // Precomputed light factors
 }
 
 type Scene struct {
@@ -69,8 +68,10 @@ func NewScene() *Scene {
 	}
 
 	default_light := NewSunLight(&s)
+	default_light.Shadows = false
 	default_light.scene = &s
-	default_light.Intensity = 0.001
+	default_light.Intensity = 0.0
+
 	default_light.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
 	default_light.Transform.UpdateModelMatrix()
 
@@ -79,7 +80,6 @@ func NewScene() *Scene {
 
 	s.Renderer.PreComputeLightDirs(&s)
 	s.Camera.Scene = &s
-	s.DefaultLight.Shadows = false
 	return &s
 }
 
@@ -116,10 +116,17 @@ func (s *Scene) RenderScene() {
 		light.DrawLight()
 	}
 
+	s.matrixMutex.Lock()
+	s.cachedViewMatrix = s.Camera.GetViewMatrix()
+	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
+	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
+	s.matrixMutex.Unlock()
+
 	// Render shadow maps first
 	for _, light := range s.Lights {
 		if light.Shadows {
 			s.Renderer.RenderShadowMap(light, s)
+			SaveShadowMapAsImage(light, "shadowmap_debug.png")
 		}
 	}
 
@@ -157,7 +164,7 @@ func (s *Scene) RenderOnThread() {
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
 	s.Renderer.PreComputeLightDirs(s)
 
-	// Drawing scene elements firsst!
+	// Drawing scene elements first!
 	s.Grid.Draw(s.Renderer, s.Camera)
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
 	for _, light := range s.Lights {
@@ -170,6 +177,13 @@ func (s *Scene) RenderOnThread() {
 	s.matrixMutex.RUnlock()
 	viewDir := s.Camera.Transform.GetForward()
 
+	// Render shadow maps first (single-threaded for now)
+	for _, light := range s.Lights {
+		if light.Shadows {
+			s.Renderer.RenderShadowMap(light, s)
+		}
+	}
+
 	var tasks []RenderTask
 
 	for _, triangle := range s.Triangles {
@@ -179,18 +193,33 @@ func (s *Scene) RenderOnThread() {
 		}
 
 		// Optional: finer culling per triangle
-		if triangle.Normal().Dot(viewDir) > 0 {
+		if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
 			continue
 		}
+
 		modelMatrix := triangle.Parent.Transform.GetMatrix()
 		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+		normalMatrix := modelMatrix.Inverse().Transpose()
+
+		// Transform triangle normal using normalMatrix
+		worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
+		triangle.WorldNormal = worldNormal
+
+		// Precompute light dot normal for each light
+		triangle.LightDotNormals = make([]float64, len(s.Lights))
+		for i, light := range s.Lights {
+			lightDir := light.GetDirection() // assuming normalized direction
+			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+		}
 
 		tasks = append(tasks, RenderTask{
-			Triangle: triangle,
-			MVP:      mvpMatrix,
+			Triangle:     triangle,
+			MVP:          mvpMatrix,
+			NormalMatrix: normalMatrix,
+			ModelMatrix:  modelMatrix,
+			LightDots:    triangle.LightDotNormals,
 		})
 	}
-	// }
 
 	numWorkers := runtime.NumCPU()
 	var wg sync.WaitGroup

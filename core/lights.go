@@ -124,9 +124,9 @@ func (l *Light) InitShadowMap(width, height int) {
 
 func (l *Light) GetDirection() nomath.Vec3 {
 	if l.Type == LightTypeDirectional {
-		return l.Transform.GetForward().Normalize().Negate() // Light shines *from* forward direction
+		return l.Transform.GetForward().Normalize().Negate()
 	}
-	return nomath.Vec3{X: 0, Y: -1, Z: 0} // default fallback for point light
+	return nomath.Vec3{X: 0, Y: -1, Z: 0}
 }
 
 func (l *Light) String() string {
@@ -134,6 +134,7 @@ func (l *Light) String() string {
 }
 
 func (l *Light) Update() {
+
 	l.Transform.UpdateModelMatrix()
 
 	if l.Shadows && l.ShadowMap != nil {
@@ -151,14 +152,10 @@ func (l *Light) Update() {
 		bottom, top := -50.0, 50.0
 		near, far := 0.1, 200.0
 
-		l.ShadowMap.ProjMatrix = nomath.Mat4{
-			2 / (right - left), 0, 0, 0,
-			0, 2 / (top - bottom), 0, 0,
-			0, 0, -2 / (far - near), 0,
-			-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
-		}
+		l.ShadowMap.ProjMatrix = nomath.Ortho(left, right, bottom, top, near, far)
 	}
 }
+
 func (l *Light) DrawLight() {
 	if l.scene == nil || l.scene.Renderer == nil {
 		return
@@ -265,4 +262,38 @@ func (l *Light) DrawLight() {
 		labelPos := start.Add(nomath.Vec3{X: 0, Y: -5, Z: 0}) // just below light position
 		renderer.DrawText3D("Sun", labelPos, camera, color)
 	}
+	if l.Type == LightTypePoint {
+		starLength := 5.0
+		origin := l.Transform.Position
+
+		// X-axis line (red)
+		color := lookdev.NewColorRGBA()
+		p1 := origin.Add(nomath.Vec3{X: -starLength, Y: 0, Z: 0})
+		p2 := origin.Add(nomath.Vec3{X: starLength, Y: 0, Z: 0})
+		color.R = 255
+		color.G = 0
+		color.B = 0
+		renderer.DrawLine3D(p1, p2, camera, color)
+
+		// Y-axis line (green)
+		p3 := origin.Add(nomath.Vec3{X: 0, Y: -starLength, Z: 0})
+		p4 := origin.Add(nomath.Vec3{X: 0, Y: starLength, Z: 0})
+		color.R = 0
+		color.G = 255
+		color.B = 0
+		renderer.DrawLine3D(p3, p4, camera, color)
+
+		// Z-axis line (blue)
+		p5 := origin.Add(nomath.Vec3{X: 0, Y: 0, Z: -starLength})
+		p6 := origin.Add(nomath.Vec3{X: 0, Y: 0, Z: starLength})
+		color.R = 0
+		color.G = 0
+		color.B = 255
+		renderer.DrawLine3D(p5, p6, camera, color)
+
+		// Optional: Label it
+		labelPos := origin.Add(nomath.Vec3{X: 0, Y: -starLength - 2, Z: 0})
+		renderer.DrawText3D("Point", labelPos, camera, color)
+	}
+
 }

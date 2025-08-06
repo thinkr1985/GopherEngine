@@ -33,7 +33,7 @@ func NewRenderer3D() *Renderer3D {
 		Framebuffer:     make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
-		ambienceFactor:  5.0,
+		ambienceFactor:  0.01,
 	}
 	// Init buffers
 	for y := 0; y < SCREEN_HEIGHT; y++ {
@@ -398,30 +398,6 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 	}
 }
 
-func (r *Renderer3D) calculateLightingWithPrecomputed(tri *assets.Triangle, lights []*Light) *lookdev.ColorRGBA {
-	result := *tri.DiffuseBuffer
-
-	// Apply precomputed lighting factors
-	for i, dot := range tri.LightDotNormals {
-		if i >= len(lights) {
-			break
-		}
-		intensity := float64(lights[i].Intensity) / 255.0
-		result.R = min(255, result.R+uint8(float64(tri.DiffuseBuffer.R)*dot*intensity))
-		result.G = min(255, result.G+uint8(float64(tri.DiffuseBuffer.G)*dot*intensity))
-		result.B = min(255, result.B+uint8(float64(tri.DiffuseBuffer.B)*dot*intensity))
-	}
-
-	// Apply specular if available
-	if tri.SpecularBuffer != nil {
-		result.R = min(255, result.R+tri.SpecularBuffer.R)
-		result.G = min(255, result.G+tri.SpecularBuffer.G)
-		result.B = min(255, result.B+tri.SpecularBuffer.B)
-	}
-
-	return &result
-}
-
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	// fmt.Printf("Pixel(%d,%d) = %v\n", x, y, color)
 	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
@@ -433,38 +409,78 @@ func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	r.rowLocks[y].Unlock()
 }
 
-// Add these helper functions to renderer.go
-
 func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
 	if !light.Shadows || light.ShadowMap == nil {
 		return false
 	}
 
-	// Transform world position to light clip space
+	// Early transform to light space
 	lightPos := light.ShadowMap.ViewMatrix.MultiplyVec4(pos.ToVec4(1.0))
 	lightClip := light.ShadowMap.ProjMatrix.MultiplyVec4(lightPos)
 
-	// Skip if behind light
-	if lightClip.Z <= 0 {
+	// Early rejection if behind light
+	if lightClip.W <= 0 {
 		return false
 	}
 
 	// Perspective divide
-	ndc := lightClip.ToVec3()
+	divided := lightClip.Divide(lightClip.W)
+	ndc := divided.ToVec3()
 
-	// Convert to shadow map coordinates
-	x := int((ndc.X + 1) * 0.5 * float64(light.ShadowMap.Width))
-	y := int((1 - (ndc.Y+1)*0.5) * float64(light.ShadowMap.Height))
-	depth := (ndc.Z + 1) * 0.5
+	// Convert to shadow map coordinates [0,1] range
+	sx := (ndc.X + 1) * 0.5
+	sy := (1 - (ndc.Y+1)*0.5)
 
-	// Check if position is outside shadow map
-	if x < 0 || x >= light.ShadowMap.Width || y < 0 || y >= light.ShadowMap.Height {
+	// Early rejection if outside shadow map
+	if sx < 0 || sx > 1 || sy < 0 || sy > 1 {
 		return false
 	}
 
-	// Add a small bias to prevent shadow acne
-	const bias = 0.005
-	return depth > light.ShadowMap.Depth[y][x]+bias
+	// Convert to texture coordinates
+	x := sx * float64(light.ShadowMap.Width-1)
+	y := sy * float64(light.ShadowMap.Height-1)
+
+	// Current fragment's depth in light space [0,1] range
+	fragmentDepth := (ndc.Z + 1) * 0.5
+	const bias = 0.001
+
+	// Rotated grid sampling (8 samples - good quality/performance balance)
+	offsets := [8]struct{ x, y float64 }{
+		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+		{-1.5, -0.5}, {0.5, -1.5}, {-0.5, 1.5}, {1.5, 0.5},
+	}
+	texelSize := 1.0 / float64(light.ShadowMap.Width)
+	shadow := 0.0
+
+	for _, offset := range offsets {
+		sampleX := x + offset.x*texelSize
+		sampleY := y + offset.y*texelSize
+
+		// Skip samples outside the shadow map
+		ix := int(sampleX)
+		iy := int(sampleY)
+		if ix < 0 || ix >= light.ShadowMap.Width || iy < 0 || iy >= light.ShadowMap.Height {
+			continue
+		}
+
+		shadowMapDepth := light.ShadowMap.Depth[iy][ix]
+		if fragmentDepth > shadowMapDepth+bias {
+			shadow += 1.0
+
+			// Early exit if definitely in shadow (4+ samples agree)
+			if shadow >= 4.0 {
+				return true
+			}
+		} else {
+			// Early exit if definitely not in shadow (5+ samples agree)
+			if (8.0 - shadow) >= 5.0 {
+				return false
+			}
+		}
+	}
+
+	// Return shadow factor (0.0 = fully lit, 1.0 = fully shadowed)
+	return shadow/8.0 > 0.5
 }
 
 func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
@@ -493,16 +509,16 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		v2 := mvpMatrix.MultiplyVec4(triangle.V2.ToVec4(1.0))
 
 		// Skip triangles that are completely behind the light
-		if v0.Z <= 0 && v1.Z <= 0 && v2.Z <= 0 {
+		if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
 			continue
 		}
 
 		// Perform perspective divide
-		ndc0 := v0.ToVec3()
-		ndc1 := v1.ToVec3()
-		ndc2 := v2.ToVec3()
+		ndc0 := v0.Divide(v0.W).ToVec3()
+		ndc1 := v1.Divide(v1.W).ToVec3()
+		ndc2 := v2.Divide(v2.W).ToVec3()
 
-		// Convert to shadow map coordinates
+		// Convert to shadow map coordinates [0,1] range
 		v0Screen := nomath.Vec2{
 			U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
 			V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
@@ -546,7 +562,6 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		}
 	}
 }
-
 func (r *Renderer3D) calculateLighting(
 	tri *assets.Triangle,
 	viewDir nomath.Vec3,
@@ -558,81 +573,91 @@ func (r *Renderer3D) calculateLighting(
 		return lookdev.NewColorRGBA() // fallback gray
 	}
 
-	fragmentPos := tri.Centroid()
-
-	// Interpolate and transform normal to world space
-	interpolatedNormal := tri.InterpolatedNormal(u, v, w)
-	normalMatrix := tri.Parent.Transform.GetMatrix().Inverse().Transpose()
-	worldNormal := normalMatrix.TransformVec3(interpolatedNormal).Normalize()
-
+	// Precompute world position and normal once
+	local := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
+	modelMatrix := tri.Parent.Transform.GetMatrix()
+	fragmentPos := modelMatrix.MultiplyVec4(local.ToVec4(1.0)).ToVec3()
+	worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
+		tri.InterpolatedNormal(u, v, w),
+	).Normalize()
 	viewDir = viewDir.Normalize()
 
 	var accumR, accumG, accumB float64
 
+	// Ambient term (compute once)
+	ambientR := float64(baseColor.R) * r.ambienceFactor
+	ambientG := float64(baseColor.G) * r.ambienceFactor
+	ambientB := float64(baseColor.B) * r.ambienceFactor
+
 	for _, light := range lights {
-		// Compute light direction
+		// Skip light if intensity is negligible
+		if light.Intensity <= 0.001 {
+			continue
+		}
+
+		// Compute light direction and distance
 		var lightDir nomath.Vec3
+		var dist float64
+		var attenuation float64 = 1.0
+
 		if light.Type == LightTypeDirectional {
 			lightDir = light.GetDirection().Normalize()
 		} else {
-			lightDir = light.Transform.Position.Subtract(fragmentPos).Normalize()
+			lightDir = light.Transform.Position.Subtract(fragmentPos)
+			dist = lightDir.Length()
+			lightDir = lightDir.Normalize()
+
+			// Skip light if too far away
+			if light.Type == LightTypePoint && dist > 50.0 { // Adjust distance as needed
+				continue
+			}
+			attenuation = 1.0 / (1.0 + light.Attenuation*dist*dist)
 		}
 
-		// Flip normal if it's facing away from light
+		// Flip normal if backface
 		normal := worldNormal
 		if normal.Dot(lightDir) < 0 {
 			normal = normal.Negate()
 		}
 
-		// Diffuse
+		// Shadow calculation (only if light casts shadows)
+		shadowFactor := 0.0
+		if light.Shadows && light.Intensity > 0.1 { // Skip shadow calc for weak lights
+			if r.isInShadow(fragmentPos, light) {
+				shadowFactor = 1.0
+			}
+		}
+
+		// Diffuse term
 		diff := max(0.0, normal.Dot(lightDir))
 
-		// Specular
-		halfVec := lightDir.Add(viewDir).Normalize()
-		specAngle := max(0.0, normal.Dot(halfVec))
-		specular := math.Pow(specAngle, tri.Material.Shininess)
+		// Specular term (skip if not facing light)
+		var specularR, specularG, specularB float64
+		if diff > 0 {
+			halfVec := lightDir.Add(viewDir).Normalize()
+			specAngle := max(0.0, normal.Dot(halfVec))
+			specular := math.Pow(specAngle, tri.Material.Shininess)
 
-		// Attenuation
-		attenuation := 1.0
-		if light.Type == LightTypePoint {
-			dist := fragmentPos.DistanceTo(light.Transform.Position)
-			attenuation = 1.0 / (1.0 + light.Attenuation*dist*dist)
+			specularR = float64(tri.SpecularBuffer.R) * specular
+			specularG = float64(tri.SpecularBuffer.G) * specular
+			specularB = float64(tri.SpecularBuffer.B) * specular
 		}
 
-		intensity := light.Intensity * attenuation
-		diff *= intensity
-		specular *= intensity
+		// Apply all factors
+		lightFactor := light.Intensity * attenuation * (1.0 - shadowFactor)
+		diff *= lightFactor
 
-		// Shadow
-		if r.isInShadow(fragmentPos, light) {
-			diff *= 0.1
-			specular = 0
-		}
-
-		// Apply diffuse
-		accumR += float64(baseColor.R) * diff
-		accumG += float64(baseColor.G) * diff
-		accumB += float64(baseColor.B) * diff
-
-		// Apply specular
-		specColor := tri.Material.SpecularColor
-		accumR += float64(specColor.R) * specular
-		accumG += float64(specColor.G) * specular
-		accumB += float64(specColor.B) * specular
+		accumR += float64(baseColor.R)*diff + specularR
+		accumG += float64(baseColor.G)*diff + specularG
+		accumB += float64(baseColor.B)*diff + specularB
 	}
 
-	// Ambient at the end
-	ambient := 0.2
-	accumR += float64(baseColor.R) * ambient
-	accumG += float64(baseColor.G) * ambient
-	accumB += float64(baseColor.B) * ambient
-
-	// Clamp final color to [0, 255]
+	// Add ambient and clamp
 	return &lookdev.ColorRGBA{
-		R: uint8(min(255, accumR)),
-		G: uint8(min(255, accumG)),
-		B: uint8(min(255, accumB)),
-		A: 255,
+		R: uint8(min(255, accumR+ambientR)),
+		G: uint8(min(255, accumG+ambientG)),
+		B: uint8(min(255, accumB+ambientB)),
+		A: baseColor.A,
 	}
 }
 
@@ -673,4 +698,18 @@ func (r *Renderer3D) ProjectToScreen(pos nomath.Vec3, camera *PerspectiveCamera)
 	}
 
 	return x, y, true
+}
+
+func SaveShadowMapAsImage(light *Light, filename string) {
+	img := image.NewGray(image.Rect(0, 0, light.ShadowMap.Width, light.ShadowMap.Height))
+	for y := 0; y < light.ShadowMap.Height; y++ {
+		for x := 0; x < light.ShadowMap.Width; x++ {
+			depth := light.ShadowMap.Depth[y][x]
+			normalized := uint8((1 - min(depth, 1.0)) * 255) // invert for visual clarity
+			img.SetGray(x, y, color.Gray{Y: normalized})
+		}
+	}
+	f, _ := os.Create(filename)
+	defer f.Close()
+	png.Encode(f, img)
 }

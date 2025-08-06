@@ -213,3 +213,12 @@ func (m Mat4) MultiplyVec4Batch(vectors []Vec4) []Vec4 {
 	}
 	return results
 }
+
+func Ortho(left, right, bottom, top, near, far float64) Mat4 {
+	return Mat4{
+		2 / (right - left), 0, 0, 0,
+		0, 2 / (top - bottom), 0, 0,
+		0, 0, -2 / (far - near), 0,
+		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
+	}
+}

@@ -6,7 +6,6 @@ import (
 	"GopherEngine/gui"
 	"GopherEngine/nomath"
 	"log"
-	"math"
 )
 
 func main() {
@@ -14,7 +13,7 @@ func main() {
 	scene := core.NewScene()
 
 	// Load the OBJ model
-	tree, err := assets.LoadOBJ("objs/watch_tower.obj")
+	tree, err := assets.LoadOBJ("objs/spheres.obj")
 	if err != nil {
 		log.Fatalf("Failed to load OBJ file: %v", err)
 	}
@@ -27,15 +26,12 @@ func main() {
 	// 	tree.Material.DiffuseTexture = tex
 	// }
 	light := core.NewDirectionalLight(scene)
+	light.Name = "Shadow Light"
 	light.Intensity = 1.0
 	light.Transform.SetPosition(nomath.Vec3{X: 0, Y: 20, Z: 10})
-	light.Transform.SetRotation(nomath.Vec3{
-		X: math.Pi / 1, // 120 degrees down
-		Y: 0,
-		Z: 0,
-	})
-	light.Transform.UpdateModelMatrix()
+	light.Transform.LookAt(nomath.Vec3{X: 0, Y: 0, Z: -20}, nomath.Vec3{X: 0, Y: 1, Z: 0})
 	light.Shadows = true
+	light.InitShadowMap(1024, 1024)
 	scene.Lights = append(scene.Lights, light)
 	scene.AddObject(tree)
 	gui.Window(scene)
