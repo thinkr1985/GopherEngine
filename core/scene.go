@@ -3,6 +3,7 @@ package core
 import (
 	"GopherEngine/assets"
 	"GopherEngine/nomath"
+	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -50,15 +51,12 @@ type Scene struct {
 }
 
 func NewScene() *Scene {
-	default_light := NewDirectionalLight()
 
 	s := Scene{
-		Renderer:     NewRenderer3D(),
-		Camera:       NewPerspectiveCamera(),
-		DefaultLight: default_light,
-		Lights:       []*Light{default_light},
-		ViewAxes:     NewViewAxes(),
-		Grid:         NewGrid(),
+		Renderer: NewRenderer3D(),
+		Camera:   NewPerspectiveCamera(),
+		ViewAxes: NewViewAxes(),
+		Grid:     NewGrid(),
 
 		// Resolution scaling defaults
 		ResolutionScale:       1.0,
@@ -69,13 +67,25 @@ func NewScene() *Scene {
 		TargetResolutionScale: 1.0,
 		ResolutionChangeSpeed: 0.25, // Adjust scale by up to 50% per second
 	}
+
+	default_light := NewSunLight(&s)
+	default_light.scene = &s
+	default_light.Intensity = 0.001
+	default_light.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
+	default_light.Transform.UpdateModelMatrix()
+
+	s.DefaultLight = default_light
+	s.Lights = append(s.Lights, default_light)
+
 	s.Renderer.PreComputeLightDirs(&s)
 	s.Camera.Scene = &s
-	s.DefaultLight.Shadows = true
+	s.DefaultLight.Shadows = false
 	return &s
 }
 
 func (s *Scene) UpdateScene() {
+	s.Lights[1].Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
+	s.Lights[1].Transform.Dirty = true
 	// Update camera first
 	s.Camera.Update()
 
@@ -98,6 +108,13 @@ func (s *Scene) AddObject(geom *assets.Geometry) {
 func (s *Scene) RenderScene() {
 	s.DrawnTriangles = 0
 	s.UpdateScene()
+
+	// Drawing scene elements firsst!
+	s.Grid.Draw(s.Renderer, s.Camera)
+	s.ViewAxes.Draw(s.Renderer, s.Camera)
+	for _, light := range s.Lights {
+		light.DrawLight()
+	}
 
 	// Render shadow maps first
 	for _, light := range s.Lights {
@@ -139,6 +156,13 @@ func (s *Scene) RenderOnThread() {
 	s.UpdateScene()
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
 	s.Renderer.PreComputeLightDirs(s)
+
+	// Drawing scene elements firsst!
+	s.Grid.Draw(s.Renderer, s.Camera)
+	s.ViewAxes.Draw(s.Renderer, s.Camera)
+	for _, light := range s.Lights {
+		light.DrawLight()
+	}
 
 	// Safely get the view-projection matrix
 	s.matrixMutex.RLock()

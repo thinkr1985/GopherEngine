@@ -6,6 +6,12 @@ import (
 	"math"
 )
 
+type ColorRGB struct {
+	R uint8 // Red (0-255)
+	G uint8 // Green (0-255)
+	B uint8 // Blue (0-255)
+}
+
 // ColorRGBA represents a color with 8-bit channels (0-255) and alpha (0-1)
 type ColorRGBA struct {
 	R uint8   // Red (0-255)
@@ -35,12 +41,11 @@ func NewWarningColorRGBA() *ColorRGBA {
 }
 
 // NewColorRGB creates a color with specified RGB values (alpha = 1.0)
-func NewColorRGB(r, g, b uint8) *ColorRGBA {
-	return &ColorRGBA{
+func NewColorRGB(r, g, b uint8) *ColorRGB {
+	return &ColorRGB{
 		R: r,
 		G: g,
 		B: b,
-		A: 1.0,
 	}
 }
 

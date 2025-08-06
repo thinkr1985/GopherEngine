@@ -10,6 +10,7 @@ import (
 const (
 	LightTypeDirectional = 0
 	LightTypePoint       = 1
+	LightTypeSun         = 2
 )
 
 type ShadowMap struct {
@@ -22,6 +23,7 @@ type ShadowMap struct {
 
 type Light struct {
 	Name        string
+	scene       *Scene
 	Direction   nomath.Vec3
 	Transform   *nomath.Transform
 	Color       *lookdev.ColorRGBA
@@ -32,9 +34,10 @@ type Light struct {
 	ShadowMap   *ShadowMap
 }
 
-func NewPointLight() *Light {
+func NewPointLight(s *Scene) *Light {
 	l := &Light{
 		Name:        "DefaultPointLight",
+		scene:       s,
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
 		Intensity:   1.0,
@@ -52,9 +55,10 @@ func NewPointLight() *Light {
 	return l
 }
 
-func NewDirectionalLight() *Light {
+func NewDirectionalLight(s *Scene) *Light {
 	l := &Light{
 		Name:        "DefaultPointLight",
+		scene:       s,
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
 		Intensity:   10.0,
@@ -66,8 +70,36 @@ func NewDirectionalLight() *Light {
 	l.Color.R = 255
 	l.Color.G = 255
 	l.Color.B = 255
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 50, Z: 20})
-	l.Transform.Rotation.Z = 90.0
+	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 50, Z: 0})
+	l.Transform.UpdateModelMatrix()
+
+	// Initialize shadow map for directional light
+	l.InitShadowMap(1024, 1024)
+
+	return l
+}
+
+func NewSunLight(s *Scene) *Light {
+	l := &Light{
+		Name:        "DefaultPointLight",
+		scene:       s,
+		Transform:   nomath.NewTransform(),
+		Color:       lookdev.NewColorRGBA(),
+		Intensity:   10.0,
+		Attenuation: 1.0,
+		Type:        LightTypeSun,
+		Shadows:     false,
+	}
+	// making light color a white.
+	l.Color.R = 255
+	l.Color.G = 255
+	l.Color.B = 255
+	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
+	l.Transform.SetRotation(nomath.Vec3{
+		X: math.Pi / 2, // 90 degrees down
+		Y: 0,
+		Z: 0,
+	})
 	l.Transform.UpdateModelMatrix()
 
 	// Initialize shadow map for directional light
@@ -92,10 +124,9 @@ func (l *Light) InitShadowMap(width, height int) {
 
 func (l *Light) GetDirection() nomath.Vec3 {
 	if l.Type == LightTypeDirectional {
-		return l.Direction.Normalize()
+		return l.Transform.GetForward().Normalize().Negate() // Light shines *from* forward direction
 	}
-	// Optional: default to zero direction
-	return nomath.Vec3{X: 0, Y: 0, Z: 0}
+	return nomath.Vec3{X: 0, Y: -1, Z: 0} // default fallback for point light
 }
 
 func (l *Light) String() string {
@@ -126,5 +157,112 @@ func (l *Light) Update() {
 			0, 0, -2 / (far - near), 0,
 			-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
 		}
+	}
+}
+func (l *Light) DrawLight() {
+	if l.scene == nil || l.scene.Renderer == nil {
+		return
+	}
+
+	renderer := l.scene.Renderer
+	camera := l.scene.Camera
+
+	arrowLength := 10.0
+	headLength := 5.0
+	headWidth := 1.0 // width of the arrowhead triangle base
+
+	start := l.Transform.Position
+	var dir nomath.Vec3
+	color := lookdev.NewColorRGBA()
+
+	// Determine color
+	if l.Type == LightTypeSun {
+		color.R = 255
+		color.G = 165
+		color.B = 0
+	} else {
+		color.R = 255
+		color.G = 255
+		color.B = 0
+	}
+
+	// Determine direction
+	if l.Type == LightTypeDirectional || l.Type == LightTypeSun {
+		dir = l.GetDirection().Normalize()
+	} else {
+		dir = nomath.Vec3{X: 0, Y: 1, Z: 0}
+	}
+
+	end := start.Add(dir.Multiply(arrowLength))
+
+	// Draw main shaft
+	renderer.DrawLine3D(start, end, camera, color)
+
+	// Choose an "up" vector that is not parallel to dir
+	var up nomath.Vec3
+	if math.Abs(dir.Y) > 0.99 {
+		up = nomath.Vec3{X: 0, Y: 0, Z: 1}
+	} else {
+		up = nomath.Vec3{X: 0, Y: 1, Z: 0}
+	}
+	right := dir.Cross(up).Normalize()
+	up = right.Cross(dir).Normalize()
+
+	// Draw 2 triangle arrowheads (in up and right planes)
+	baseCenter := end.Subtract(dir.Multiply(headLength))
+
+	// Triangle 1: in UP plane
+	tip := end
+	base1a := baseCenter.Add(up.Multiply(headWidth))
+	base1b := baseCenter.Subtract(up.Multiply(headWidth))
+	renderer.DrawTriangle3D(tip, base1a, base1b, camera, color)
+
+	// Triangle 2: in RIGHT plane
+	base2a := baseCenter.Add(right.Multiply(headWidth))
+	base2b := baseCenter.Subtract(right.Multiply(headWidth))
+	renderer.DrawTriangle3D(tip, base2a, base2b, camera, color)
+
+	// Draw Sun representation if type is SUN
+	if l.Type == LightTypeSun {
+		radius := 5.0
+		segments := 32
+
+		// Circle in XZ plane
+		for i := 0; i < segments; i++ {
+			theta1 := float64(i) * 2 * math.Pi / float64(segments)
+			theta2 := float64(i+1) * 2 * math.Pi / float64(segments)
+			p1 := start.Add(nomath.Vec3{
+				X: radius * math.Cos(theta1),
+				Y: 0,
+				Z: radius * math.Sin(theta1),
+			})
+			p2 := start.Add(nomath.Vec3{
+				X: radius * math.Cos(theta2),
+				Y: 0,
+				Z: radius * math.Sin(theta2),
+			})
+			renderer.DrawLine3D(p1, p2, camera, color)
+		}
+
+		// Circle in YZ plane
+		for i := 0; i < segments; i++ {
+			theta1 := float64(i) * 2 * math.Pi / float64(segments)
+			theta2 := float64(i+1) * 2 * math.Pi / float64(segments)
+			p1 := start.Add(nomath.Vec3{
+				X: 0,
+				Y: radius * math.Cos(theta1),
+				Z: radius * math.Sin(theta1),
+			})
+			p2 := start.Add(nomath.Vec3{
+				X: 0,
+				Y: radius * math.Cos(theta2),
+				Z: radius * math.Sin(theta2),
+			})
+			renderer.DrawLine3D(p1, p2, camera, color)
+		}
+
+		// Draw label "Sun"
+		labelPos := start.Add(nomath.Vec3{X: 0, Y: -5, Z: 0}) // just below light position
+		renderer.DrawText3D("Sun", labelPos, camera, color)
 	}
 }

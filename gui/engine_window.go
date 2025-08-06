@@ -88,10 +88,8 @@ func Window(scene *core.Scene) {
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
-		// Render 3D scene
-		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
-		scene.Grid.Draw(scene.Renderer, scene.Camera)
-		scene.RenderScene()
+		// Render 3D
+		scene.RenderOnThread()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
