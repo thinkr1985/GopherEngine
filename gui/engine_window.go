@@ -215,26 +215,6 @@ func drawKeyboardOverlay(tex rl.Texture2D) {
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)
 }
 
-/*
-func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
-	w := img.Bounds().Dx()
-	h := img.Bounds().Dy()
-	src := img.Pix
-	pixels := make([]color.RGBA, w*h)
-
-	for i := 0; i < len(pixels); i++ {
-		pixels[i] = color.RGBA{
-			R: src[i*4],
-			G: src[i*4+1],
-			B: src[i*4+2],
-			A: src[i*4+3],
-		}
-	}
-
-	return pixels
-}
-*/
-
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
 	w := img.Bounds().Dx()
 	h := img.Bounds().Dy()

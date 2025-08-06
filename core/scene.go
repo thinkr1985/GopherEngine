@@ -2,6 +2,7 @@ package core
 
 import (
 	"GopherEngine/assets"
+	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
 	"math"
 	"runtime"
@@ -70,9 +71,10 @@ func NewScene() *Scene {
 	default_light := NewSunLight(&s)
 	default_light.Shadows = false
 	default_light.scene = &s
-	default_light.Intensity = 0.0
+	default_light.Intensity = 1.0
 
 	default_light.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
+	default_light.Transform.LookAt(nomath.Vec3{X: 0, Y: 0, Z: 20}, nomath.Vec3{X: 0, Y: 60, Z: 0})
 	default_light.Transform.UpdateModelMatrix()
 
 	s.DefaultLight = default_light
@@ -158,11 +160,21 @@ func (s *Scene) RenderScene() {
 		s.DrawnTriangles++
 	}
 }
-
 func (s *Scene) RenderOnThread() {
 	s.UpdateScene()
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
 	s.Renderer.PreComputeLightDirs(s)
+
+	// Clear all shadow maps first
+	for _, light := range s.Lights {
+		if light.Shadows && light.ShadowMap != nil {
+			for y := 0; y < light.ShadowMap.Height; y++ {
+				for x := 0; x < light.ShadowMap.Width; x++ {
+					light.ShadowMap.Depth[y][x] = math.MaxFloat64
+				}
+			}
+		}
+	}
 
 	// Drawing scene elements first!
 	s.Grid.Draw(s.Renderer, s.Camera)
@@ -177,15 +189,9 @@ func (s *Scene) RenderOnThread() {
 	s.matrixMutex.RUnlock()
 	viewDir := s.Camera.Transform.GetForward()
 
-	// Render shadow maps first (single-threaded for now)
-	for _, light := range s.Lights {
-		if light.Shadows {
-			s.Renderer.RenderShadowMap(light, s)
-		}
-	}
-
 	var tasks []RenderTask
 
+	// First pass: generate shadow maps and collect render tasks
 	for _, triangle := range s.Triangles {
 		// Skip entire object if not in view
 		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) {
@@ -208,7 +214,14 @@ func (s *Scene) RenderOnThread() {
 		// Precompute light dot normal for each light
 		triangle.LightDotNormals = make([]float64, len(s.Lights))
 		for i, light := range s.Lights {
-			lightDir := light.GetDirection() // assuming normalized direction
+			if light.Shadows && light.ShadowMap != nil {
+				// Render to shadow map if needed
+				lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+				shadowMVP := lightVP.Multiply(modelMatrix)
+				s.renderTriangleToShadowMap(triangle, shadowMVP, light)
+			}
+
+			lightDir := light.GetDirection()
 			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
 		}
 
@@ -221,6 +234,10 @@ func (s *Scene) RenderOnThread() {
 		})
 	}
 
+	// Clear the framebuffer and depth buffer
+	s.Renderer.Clear(lookdev.ColorRGBA{R: 0, G: 0, B: 0, A: 255})
+
+	// Second pass: render scene with parallel workers
 	numWorkers := runtime.NumCPU()
 	var wg sync.WaitGroup
 	workChan := make(chan RenderTask, len(tasks))
@@ -246,4 +263,64 @@ func (s *Scene) RenderOnThread() {
 	}
 	close(workChan)
 	wg.Wait()
+}
+
+func (s *Scene) renderTriangleToShadowMap(tri *assets.Triangle, mvpMatrix nomath.Mat4, light *Light) {
+	// Transform vertices to clip space
+	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
+	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
+	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
+
+	// Skip triangles that are completely behind the light
+	if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
+		return
+	}
+
+	// Perform perspective divide
+	ndc0 := v0.Divide(v0.W).ToVec3()
+	ndc1 := v1.Divide(v1.W).ToVec3()
+	ndc2 := v2.Divide(v2.W).ToVec3()
+
+	// Convert to shadow map coordinates [0,1] range
+	v0Screen := nomath.Vec2{
+		U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+	v1Screen := nomath.Vec2{
+		U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+	v2Screen := nomath.Vec2{
+		U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+
+	// Convert depth from [-1,1] to [0,1] range
+	depth0 := (ndc0.Z + 1) * 0.5
+	depth1 := (ndc1.Z + 1) * 0.5
+	depth2 := (ndc2.Z + 1) * 0.5
+
+	// Find bounding box in shadow map
+	minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
+	maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
+	minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
+	maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
+
+	// Rasterize triangle to shadow map
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			p := nomath.Vec2{U: float64(x), V: float64(y)}
+			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
+
+			if u >= 0 && v >= 0 && w >= 0 {
+				// Interpolate depth
+				depth := u*depth0 + v*depth1 + w*depth2
+
+				// Update shadow map depth if this is closer
+				if depth < light.ShadowMap.Depth[y][x] {
+					light.ShadowMap.Depth[y][x] = depth
+				}
+			}
+		}
+	}
 }
