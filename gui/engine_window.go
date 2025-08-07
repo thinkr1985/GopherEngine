@@ -62,6 +62,7 @@ func Window(scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.PixelFormat(7),
 	})
+	rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -107,6 +108,7 @@ func Window(scene *core.Scene) {
 				Mipmaps: 1,
 				Format:  rl.PixelFormat(7),
 			})
+			rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 		} else {
 			// Update existing texture
 			rl.UpdateTexture(fullResTex, rgbaSlice)

@@ -74,7 +74,7 @@ func NewDirectionalLight(s *Scene) *Light {
 	l.Transform.UpdateModelMatrix()
 
 	// Initialize shadow map for directional light
-	l.InitShadowMap(1024, 1024)
+	l.InitShadowMap(512, 512)
 
 	return l
 }

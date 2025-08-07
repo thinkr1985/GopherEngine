@@ -360,7 +360,6 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
 	}
 }
-
 func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera) {
 	x0, y0 := r.NDCToScreen(verts[0])
 	x1, y1 := r.NDCToScreen(verts[1])
@@ -383,6 +382,9 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 	depth1 := (verts[1].Z + 1) * 0.5
 	depth2 := (verts[2].Z + 1) * 0.5
 
+	// Precompute view direction once
+	viewDir := camera.Transform.GetForward().Normalize()
+
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
 			p := nomath.Vec2{U: float64(x), V: float64(y)}
@@ -391,39 +393,19 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 			if u >= 0 && v >= 0 && w >= 0 {
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-					uv := tri.InterpolatedUV(u, v, w)
+					// Calculate lighting
+					matColor := r.calculateLighting(camera, tri, viewDir, lights, u, v, w)
 
-					var finalColor lookdev.ColorRGBA
-					if tri.Material != nil && tri.Material.DiffuseTexture != nil {
-						texColor := tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
-						tri.DiffuseBuffer = &texColor
-
-						// Only draw if alpha is above threshold
-						if texColor.A > 0.01 { // 1% alpha threshold
-							finalColor = lookdev.ColorRGBA{
-								R: texColor.R,
-								G: texColor.G,
-								B: texColor.B,
-								A: texColor.A, // Already in 0.0-1.0 range
-							}
-
-							// Simple alpha blending (replace with proper blending if needed)
-							if finalColor.A < 1.0 {
-								bg := r.Framebuffer[y][x]
-								finalColor = lookdev.BlendColors(bg, finalColor)
-							}
-
-							// r.safeSetPixel(x, y, finalColor)
-							// r.DepthBuffer[y][x] = float32(depth)
-							matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+					// Only draw if not fully transparent
+					if matColor.A > 0.01 {
+						// Alpha blending
+						if matColor.A < 1.0 {
+							bg := r.Framebuffer[y][x]
+							finalColor := lookdev.BlendColors(bg, *matColor)
+							r.safeSetPixel(x, y, finalColor)
+						} else {
 							r.safeSetPixel(x, y, *matColor)
-							r.DepthBuffer[y][x] = float32(depth)
-
 						}
-					} else {
-						// Fallback to material color (fully opaque)
-						matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
-						r.safeSetPixel(x, y, *matColor)
 						r.DepthBuffer[y][x] = float32(depth)
 					}
 				}
@@ -448,7 +430,7 @@ func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
 		return false
 	}
 
-	// Early transform to light space
+	// Transform to light space
 	lightPos := light.ShadowMap.ViewMatrix.MultiplyVec4(pos.ToVec4(1.0))
 	lightClip := light.ShadowMap.ProjMatrix.MultiplyVec4(lightPos)
 
@@ -476,13 +458,20 @@ func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
 
 	// Current fragment's depth in light space [0,1] range
 	fragmentDepth := (ndc.Z + 1) * 0.5
-	const bias = 0.001
 
-	// Rotated grid sampling (8 samples - good quality/performance balance)
-	offsets := [8]struct{ x, y float64 }{
+	// Calculate normal bias to reduce shadow acne
+	normal := light.GetDirection().Normalize()
+	bias := max(0.005*(1.0-normal.Dot(light.GetDirection())), 0.001)
+	fragmentDepth -= bias
+
+	// Rotated grid sampling (16 samples for better quality)
+	offsets := [16]struct{ x, y float64 }{
 		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
 		{-1.5, -0.5}, {0.5, -1.5}, {-0.5, 1.5}, {1.5, 0.5},
+		{-1.5, 1.5}, {1.5, -1.5}, {-1.5, -1.5}, {1.5, 1.5},
+		{-0.5, -0.5}, {0.5, -0.5}, {-0.5, 0.5}, {0.5, 0.5},
 	}
+
 	texelSize := 1.0 / float64(light.ShadowMap.Width)
 	shadow := 0.0
 
@@ -490,31 +479,19 @@ func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
 		sampleX := x + offset.x*texelSize
 		sampleY := y + offset.y*texelSize
 
-		// Skip samples outside the shadow map
 		ix := int(sampleX)
 		iy := int(sampleY)
 		if ix < 0 || ix >= light.ShadowMap.Width || iy < 0 || iy >= light.ShadowMap.Height {
 			continue
 		}
 
-		shadowMapDepth := light.ShadowMap.Depth[iy][ix]
-		if fragmentDepth > shadowMapDepth+bias {
+		if fragmentDepth > light.ShadowMap.Depth[iy][ix] {
 			shadow += 1.0
-
-			// Early exit if definitely in shadow (4+ samples agree)
-			if shadow >= 4.0 {
-				return true
-			}
-		} else {
-			// Early exit if definitely not in shadow (5+ samples agree)
-			if (8.0 - shadow) >= 5.0 {
-				return false
-			}
 		}
 	}
 
 	// Return shadow factor (0.0 = fully lit, 1.0 = fully shadowed)
-	return shadow/8.0 > 0.5
+	return shadow/16.0 > 0.5
 }
 
 func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
@@ -598,43 +575,49 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 }
 
 func (r *Renderer3D) calculateLighting(
+	camera *PerspectiveCamera,
 	tri *assets.Triangle,
 	viewDir nomath.Vec3,
 	lights []*Light,
 	u, v, w float64,
 ) *lookdev.ColorRGBA {
-
-	baseColor := tri.DiffuseBuffer
-	if baseColor == nil {
-		return lookdev.NewColorRGBA() // fallback gray
+	// Get base color from texture or material
+	var baseColor lookdev.ColorRGBA
+	if tri.HasTexture {
+		uv := tri.InterpolatedUV(u, v, w)
+		baseColor = tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
+	} else {
+		baseColor = *tri.DiffuseBuffer
 	}
 
-	// Precompute world position and normal once
-	local := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
+	// Early exit if fully transparent
+	if baseColor.A <= 0.01 {
+		return &lookdev.ColorRGBA{R: 0, G: 0, B: 0, A: 0}
+	}
+
+	// Calculate world position and normal
+	localPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
 	modelMatrix := tri.Parent.Transform.GetMatrix()
-	fragmentPos := modelMatrix.MultiplyVec4(local.ToVec4(1.0)).ToVec3()
+	fragmentPos := modelMatrix.MultiplyVec4(localPos.ToVec4(1.0)).ToVec3()
 	worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
 		tri.InterpolatedNormal(u, v, w),
 	).Normalize()
 	viewDir = viewDir.Normalize()
 
-	var accumR, accumG, accumB float64
+	// Initialize lighting accumulators
+	diffuseR, diffuseG, diffuseB := 0.0, 0.0, 0.0
+	specularR, specularG, specularB := 0.0, 0.0, 0.0
 
-	// Ambient term (compute once)
-	ambientR := float64(baseColor.R) * r.ambienceFactor
-	ambientG := float64(baseColor.G) * r.ambienceFactor
-	ambientB := float64(baseColor.B) * r.ambienceFactor
-
+	// Process each light
 	for _, light := range lights {
-		// Skip light if intensity is negligible
 		if light.Intensity <= 0.001 {
 			continue
 		}
 
-		// Compute light direction and distance
+		// Calculate light direction and distance
 		var lightDir nomath.Vec3
-		var dist float64
 		var attenuation float64 = 1.0
+		var dist float64 = 0.0
 
 		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
 			lightDir = light.GetDirection().Normalize()
@@ -644,10 +627,18 @@ func (r *Renderer3D) calculateLighting(
 			lightDir = lightDir.Normalize()
 
 			// Skip light if too far away
-			if light.Type == LightTypePoint && dist > 50.0 { // Adjust distance as needed
+			if light.Type == LightTypePoint && dist > 50.0 {
 				continue
 			}
 			attenuation = 1.0 / (1.0 + light.Attenuation*dist*dist)
+		}
+
+		// Calculate shadow factor
+		shadowFactor := 0.0
+		if light.Shadows && light.Intensity > 0.1 {
+			if r.isInShadow(fragmentPos, light) {
+				shadowFactor = 1.0
+			}
 		}
 
 		// Flip normal if backface
@@ -656,46 +647,57 @@ func (r *Renderer3D) calculateLighting(
 			normal = normal.Negate()
 		}
 
-		// Shadow calculation (only if light casts shadows)
-		// Shadow calculation (only if light casts shadows)
-		shadowFactor := 0.0
-		if light.Shadows && light.Intensity > 0.1 {
-			if r.isInShadow(fragmentPos, light) {
-				shadowFactor = 1.0
-			}
-		}
+		// Diffuse
+		diff := max(0.0, normal.Dot(lightDir)) * attenuation * (1.0 - shadowFactor)
+		diffuseR += float64(light.Color.R) * diff * light.Intensity
+		diffuseG += float64(light.Color.G) * diff * light.Intensity
+		diffuseB += float64(light.Color.B) * diff * light.Intensity
 
-		// Diffuse term
-		diff := max(0.0, normal.Dot(lightDir))
+		// Specular
+		halfVec := lightDir.Add(viewDir).Normalize()
+		specAngle := max(0.0, normal.Dot(halfVec))
+		spec := math.Pow(specAngle, tri.Material.Shininess) * attenuation * (1.0 - shadowFactor)
 
-		// Specular term (skip if not facing light)
-		var specularR, specularG, specularB float64
-		if diff > 0 {
-			halfVec := lightDir.Add(viewDir).Normalize()
-			specAngle := max(0.0, normal.Dot(halfVec))
-			specular := math.Pow(specAngle, tri.Material.Shininess)
-
-			specularR = float64(tri.SpecularBuffer.R) * specular
-			specularG = float64(tri.SpecularBuffer.G) * specular
-			specularB = float64(tri.SpecularBuffer.B) * specular
-		}
-
-		// Apply all factors
-		lightFactor := light.Intensity * attenuation * (1.0 - shadowFactor)
-		diff *= lightFactor
-
-		accumR += float64(baseColor.R)*diff + specularR
-		accumG += float64(baseColor.G)*diff + specularG
-		accumB += float64(baseColor.B)*diff + specularB
+		specularR += float64(light.Color.R) * spec * light.Intensity
+		specularG += float64(light.Color.G) * spec * light.Intensity
+		specularB += float64(light.Color.B) * spec * light.Intensity
 	}
 
-	// Add ambient and clamp
-	return &lookdev.ColorRGBA{
-		R: uint8(min(255, accumR+ambientR)),
-		G: uint8(min(255, accumG+ambientG)),
-		B: uint8(min(255, accumB+ambientB)),
+	// Combine base color and lighting
+	rFinal := clampColor(float64(baseColor.R) + diffuseR + specularR)
+	gFinal := clampColor(float64(baseColor.G) + diffuseG + specularG)
+	bFinal := clampColor(float64(baseColor.B) + diffuseB + specularB)
+
+	litColor := &lookdev.ColorRGBA{
+		R: rFinal,
+		G: gFinal,
+		B: bFinal,
 		A: baseColor.A,
 	}
+
+	// === ✅ ADVANCED FOG SECTION (Exponential + Intensity Control) ===
+	fogColor := lookdev.ColorRGBA{R: 120, G: 150, B: 180, A: 1.0} // Fog color
+	fogNear := 5.0                                                // Distance where fog starts
+	fogFar := 20.0                                                // Distance where fog reaches maximum
+	fogIntensity := 2.0                                           // 0.0 = no fog, 1.0 = full fog effect
+	fogDensity := 0.07                                            // Controls exponential falloff
+
+	cameraPos := camera.Transform.Position
+	depth := fragmentPos.Subtract(cameraPos).Length()
+
+	// Clamp depth to fog range
+	linearFactor := math.Max(0.0, math.Min(1.0, (depth-fogNear)/(fogFar-fogNear)))
+
+	// Apply exponential falloff
+	expFactor := 1.0 - math.Exp(-fogDensity*depth)
+
+	// Blend both and scale by fogIntensity
+	combinedFogFactor := linearFactor * expFactor * fogIntensity
+	combinedFogFactor = math.Max(0.0, math.Min(1.0, combinedFogFactor)) // clamp again
+
+	finalColor := litColor.Lerp(&fogColor, combinedFogFactor)
+	return finalColor
+
 }
 
 func (r *Renderer3D) DrawTriangle3D(p1, p2, p3 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
@@ -749,4 +751,39 @@ func SaveShadowMapAsImage(light *Light, filename string) {
 	f, _ := os.Create(filename)
 	defer f.Close()
 	png.Encode(f, img)
+}
+
+func (r *Renderer3D) BlurShadowMap(light *Light) {
+	temp := make([][]float64, light.ShadowMap.Height)
+	for i := range temp {
+		temp[i] = make([]float64, light.ShadowMap.Width)
+	}
+
+	// Horizontal blur
+	for y := 1; y < light.ShadowMap.Height-1; y++ {
+		for x := 1; x < light.ShadowMap.Width-1; x++ {
+			temp[y][x] = (light.ShadowMap.Depth[y][x-1] +
+				light.ShadowMap.Depth[y][x] +
+				light.ShadowMap.Depth[y][x+1]) / 3
+		}
+	}
+
+	// Vertical blur
+	for y := 1; y < light.ShadowMap.Height-1; y++ {
+		for x := 1; x < light.ShadowMap.Width-1; x++ {
+			light.ShadowMap.Depth[y][x] = (temp[y-1][x] +
+				temp[y][x] +
+				temp[y+1][x]) / 3
+		}
+	}
+}
+
+func clampColor(value float64) uint8 {
+	if value < 0 {
+		return 0
+	}
+	if value > 255 {
+		return 255
+	}
+	return uint8(value)
 }
