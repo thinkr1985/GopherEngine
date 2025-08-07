@@ -141,6 +141,18 @@ func (c *ColorRGBA) Add(other *ColorRGBA) *ColorRGBA {
 	}
 }
 
+func BlendColors(bg, fg ColorRGBA) ColorRGBA {
+	alpha := fg.A
+	invAlpha := 1.0 - alpha
+
+	return ColorRGBA{
+		R: uint8(float64(fg.R)*alpha + float64(bg.R)*invAlpha),
+		G: uint8(float64(fg.G)*alpha + float64(bg.G)*invAlpha),
+		B: uint8(float64(fg.B)*alpha + float64(bg.B)*invAlpha),
+		A: bg.A*invAlpha + fg.A, // Blend alpha channels
+	}
+}
+
 // Multiply blends two colors multiplicatively
 func (c *ColorRGBA) Multiply(other *ColorRGBA) *ColorRGBA {
 	return &ColorRGBA{

@@ -25,28 +25,38 @@ type Triangle struct {
 	BufferCache     bool
 	LightDotNormals []float64   // one per light
 	WorldNormal     nomath.Vec3 // transformed normal after applying NormalMatrix
+	HasTexture      bool        // New field to track texture status
 }
 
 func NewTriangle(
 	geometry *Geometry, material *lookdev.Material,
 	v0, v1, v2, n0, n1, n2 *nomath.Vec3,
 	uv0, uv1, uv2 *nomath.Vec2) *Triangle {
-	return &Triangle{
-		Parent:      geometry,
-		Material:    material,
-		V0:          v0,
-		V1:          v1,
-		V2:          v2,
-		N0:          n0,
-		N1:          n1,
-		N2:          n2,
-		UV0:         uv0,
-		UV1:         uv1,
-		UV2:         uv2,
-		BufferCache: false,
-	}
-}
 
+	// Ensure we have a material
+	if material == nil {
+		material = lookdev.NewMaterial("default")
+	}
+
+	tri := &Triangle{
+		Parent:         geometry,
+		Material:       material,
+		V0:             v0,
+		V1:             v1,
+		V2:             v2,
+		N0:             n0,
+		N1:             n1,
+		N2:             n2,
+		UV0:            uv0,
+		UV1:            uv1,
+		UV2:            uv2,
+		DiffuseBuffer:  &material.DiffuseColor, // Initialize with material color
+		SpecularBuffer: &material.SpecularColor,
+		BufferCache:    false,
+	}
+
+	return tri
+}
 func (t *Triangle) Centroid() nomath.Vec3 {
 	return (*t.V0).Add(*t.V1).Add(*t.V2).Multiply(1.0 / 3.0)
 }
@@ -69,22 +79,17 @@ func (t *Triangle) InterpolatedNormal(u, v, w float64) nomath.Vec3 {
 }
 
 func (t *Triangle) InterpolatedUV(u, v, w float64) nomath.Vec2 {
-	// Default to (0,0) if any UV is missing
 	if t.UV0 == nil || t.UV1 == nil || t.UV2 == nil {
 		return nomath.Vec2{U: 0, V: 0}
 	}
 
-	// Clamp barycentric coordinates to ensure they're valid
-	u = clamp(u, 0, 1)
-	v = clamp(v, 0, 1)
-	w = clamp(w, 0, 1)
-
-	// Normalize to ensure u + v + w = 1
+	// Normalize barycentric weights
 	sum := u + v + w
 	if sum != 0 {
-		u /= sum
-		v /= sum
-		w /= sum
+		inv := 1.0 / sum
+		u *= inv
+		v *= inv
+		w *= inv
 	}
 
 	return nomath.Vec2{
@@ -117,4 +122,43 @@ func Barycentric(p nomath.Vec2, v0Screen, v1Screen, v2Screen nomath.Vec2) (u, v,
 		(v0Screen.U-v2Screen.U)*(p.V-v2Screen.V)) / denom
 	w = 1 - u - v
 	return
+}
+func (t *Triangle) PreComputeBuffers() {
+	if t.BufferCache || t.Material == nil {
+		return
+	}
+
+	// Initialize buffers if nil
+	if t.DiffuseBuffer == nil {
+		t.DiffuseBuffer = &t.Material.DiffuseColor
+	}
+	if t.SpecularBuffer == nil {
+		t.SpecularBuffer = &t.Material.SpecularColor
+	}
+
+	t.HasTexture = (t.Material != nil && t.Material.DiffuseTexture != nil)
+
+	if t.HasTexture {
+		// Sample at all three vertices
+		uv0 := t.InterpolatedUV(1, 0, 0) // Vertex 0
+		uv1 := t.InterpolatedUV(0, 1, 0) // Vertex 1
+		uv2 := t.InterpolatedUV(0, 0, 1) // Vertex 2
+
+		color0 := t.Material.DiffuseTexture.Sample(uv0.U, uv0.V)
+		color1 := t.Material.DiffuseTexture.Sample(uv1.U, uv1.V)
+		color2 := t.Material.DiffuseTexture.Sample(uv2.U, uv2.V)
+
+		// Store as vertex colors
+		t.DiffuseBuffer = &lookdev.ColorRGBA{
+			R: uint8((float64(color0.R) + float64(color1.R) + float64(color2.R)) / 3),
+			G: uint8((float64(color0.G) + float64(color1.G) + float64(color2.G)) / 3),
+			B: uint8((float64(color0.B) + float64(color1.B) + float64(color2.B)) / 3),
+			A: (color0.A + color1.A + color2.A) / 3,
+		}
+	} else {
+		// Fallback to material color
+		t.DiffuseBuffer = &t.Material.DiffuseColor
+	}
+
+	t.BufferCache = true
 }

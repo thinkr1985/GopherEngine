@@ -43,15 +43,15 @@ func NewPointLight(s *Scene) *Light {
 		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypePoint,
-		Shadows:     false,
+		Shadows:     true,
 	}
+	s.Lights = append(s.Lights, l)
 	// making light color a white.
 	l.Color.R = 255
 	l.Color.G = 255
 	l.Color.B = 255
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 100, Z: 0})
 	l.Transform.UpdateModelMatrix()
-
+	l.InitShadowMap(1024, 1024)
 	return l
 }
 
@@ -64,13 +64,13 @@ func NewDirectionalLight(s *Scene) *Light {
 		Intensity:   10.0,
 		Attenuation: 1.0,
 		Type:        LightTypeDirectional,
-		Shadows:     false,
+		Shadows:     true,
 	}
+	s.Lights = append(s.Lights, l)
 	// making light color a white.
 	l.Color.R = 255
 	l.Color.G = 255
 	l.Color.B = 255
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 50, Z: 0})
 	l.Transform.UpdateModelMatrix()
 
 	// Initialize shadow map for directional light
@@ -81,25 +81,23 @@ func NewDirectionalLight(s *Scene) *Light {
 
 func NewSunLight(s *Scene) *Light {
 	l := &Light{
-		Name:        "DefaultPointLight",
+		Name:        "Sun",
 		scene:       s,
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
-		Intensity:   10.0,
+		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypeSun,
-		Shadows:     false,
+		Shadows:     true,
 	}
+	s.Lights = append(s.Lights, l)
 	// making light color a white.
-	l.Color.R = 255
-	l.Color.G = 255
-	l.Color.B = 255
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
-	l.Transform.SetRotation(nomath.Vec3{
-		X: math.Pi / 2, // 90 degrees down
-		Y: 0,
-		Z: 0,
-	})
+	l.Color.R = 240
+	l.Color.G = 237
+	l.Color.B = 168
+	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 20, Z: 20})
+	l.Transform.Rotation.X = 4.2
+	l.Transform.Rotation.Y = 1.0
 	l.Transform.UpdateModelMatrix()
 
 	// Initialize shadow map for directional light
@@ -123,7 +121,7 @@ func (l *Light) InitShadowMap(width, height int) {
 }
 
 func (l *Light) GetDirection() nomath.Vec3 {
-	if l.Type == LightTypeDirectional {
+	if l.Type == LightTypeDirectional || l.Type == LightTypeSun {
 		return l.Transform.GetForward().Normalize().Negate()
 	}
 	return nomath.Vec3{X: 0, Y: -1, Z: 0}

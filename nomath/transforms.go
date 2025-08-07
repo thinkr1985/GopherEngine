@@ -108,7 +108,7 @@ func (t *Transform) getDirectionFromRotation(x, y, z float64) Vec3 {
 		Multiply(RotationZMatrix(t.Rotation.Z))  // Roll
 
 	direction := Vec4{X: x, Y: y, Z: z, W: 0}
-	transformed := rotation.MultiplyVec4(direction) // Fixed typo here (was MultiplyVec4)
+	transformed := rotation.MultiplyVec4(direction)
 	return transformed.ToVec3().Normalize()
 }
 

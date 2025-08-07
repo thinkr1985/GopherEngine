@@ -68,26 +68,21 @@ func NewScene() *Scene {
 		ResolutionChangeSpeed: 0.25, // Adjust scale by up to 50% per second
 	}
 
+	// Setting a Sun Light
 	default_light := NewSunLight(&s)
-	default_light.Shadows = false
 	default_light.scene = &s
-	default_light.Intensity = 1.0
-
-	default_light.Transform.SetPosition(nomath.Vec3{X: 0, Y: 60, Z: -30})
-	default_light.Transform.LookAt(nomath.Vec3{X: 0, Y: 0, Z: 20}, nomath.Vec3{X: 0, Y: 60, Z: 0})
-	default_light.Transform.UpdateModelMatrix()
-
 	s.DefaultLight = default_light
-	s.Lights = append(s.Lights, default_light)
-
 	s.Renderer.PreComputeLightDirs(&s)
+
 	s.Camera.Scene = &s
 	return &s
 }
 
 func (s *Scene) UpdateScene() {
-	s.Lights[1].Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
-	s.Lights[1].Transform.Dirty = true
+
+	s.DefaultLight.Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
+	s.DefaultLight.Transform.Dirty = true
+	s.Renderer.PreComputeLightDirs(s)
 	// Update camera first
 	s.Camera.Update()
 
@@ -98,7 +93,7 @@ func (s *Scene) UpdateScene() {
 	for _, obj := range s.Objects {
 		obj.Update()
 	}
-	s.Renderer.PreComputeLightDirs(s)
+
 }
 
 func (s *Scene) AddObject(geom *assets.Geometry) {
@@ -118,6 +113,7 @@ func (s *Scene) RenderScene() {
 		light.DrawLight()
 	}
 
+	// Rendering a scene
 	s.matrixMutex.Lock()
 	s.cachedViewMatrix = s.Camera.GetViewMatrix()
 	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
@@ -128,7 +124,7 @@ func (s *Scene) RenderScene() {
 	for _, light := range s.Lights {
 		if light.Shadows {
 			s.Renderer.RenderShadowMap(light, s)
-			SaveShadowMapAsImage(light, "shadowmap_debug.png")
+			// SaveShadowMapAsImage(light, "shadowmap_debug.png")
 		}
 	}
 
@@ -160,6 +156,7 @@ func (s *Scene) RenderScene() {
 		s.DrawnTriangles++
 	}
 }
+
 func (s *Scene) RenderOnThread() {
 	s.UpdateScene()
 	atomic.StoreInt32(&s.DrawnTriangles, 0)

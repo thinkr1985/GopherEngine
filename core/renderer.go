@@ -25,6 +25,8 @@ type Renderer3D struct {
 	cachedHeight int
 
 	rowLocks []sync.Mutex // NEW: One mutex per row
+	CPU      string
+	GPU      string
 }
 
 func NewRenderer3D() *Renderer3D {
@@ -35,6 +37,8 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 	}
+	r.CPU = GetCPU()
+	r.GPU = GetGPU()
 	// Init buffers
 	for y := 0; y < SCREEN_HEIGHT; y++ {
 		r.Framebuffer[y] = make([]lookdev.ColorRGBA, SCREEN_WIDTH)
@@ -121,7 +125,7 @@ func (r *Renderer3D) ToImage() *image.RGBA {
 				R: c.R,
 				G: c.G,
 				B: c.B,
-				A: 255,
+				A: uint8(c.A * 255), // Convert from 0.0-1.0 to 0-255
 			})
 		}
 	}
@@ -273,13 +277,13 @@ func abs(x int) int {
 func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 	r.precomputedLightDirs = make([]nomath.Vec3, len(s.Lights))
 	for i, light := range s.Lights {
-		if light.Transform.Dirty {
-			if light.Type == LightTypeDirectional {
-				r.precomputedLightDirs[i] = light.Transform.Position.Normalize().Negate()
-			} else {
-				r.precomputedLightDirs[i] = light.Transform.Position
-			}
+		// if light.Transform.Dirty {
+		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
+			r.precomputedLightDirs[i] = light.Transform.Position.Normalize().Negate()
+		} else {
+			r.precomputedLightDirs[i] = light.Transform.Position
 		}
+		// }
 	}
 }
 func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
@@ -387,11 +391,41 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 			if u >= 0 && v >= 0 && w >= 0 {
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-					// var color *lookdev.ColorRGBA
-					color := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+					uv := tri.InterpolatedUV(u, v, w)
 
-					r.safeSetPixel(x, y, *color)
-					r.DepthBuffer[y][x] = float32(depth)
+					var finalColor lookdev.ColorRGBA
+					if tri.Material != nil && tri.Material.DiffuseTexture != nil {
+						texColor := tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
+						tri.DiffuseBuffer = &texColor
+
+						// Only draw if alpha is above threshold
+						if texColor.A > 0.01 { // 1% alpha threshold
+							finalColor = lookdev.ColorRGBA{
+								R: texColor.R,
+								G: texColor.G,
+								B: texColor.B,
+								A: texColor.A, // Already in 0.0-1.0 range
+							}
+
+							// Simple alpha blending (replace with proper blending if needed)
+							if finalColor.A < 1.0 {
+								bg := r.Framebuffer[y][x]
+								finalColor = lookdev.BlendColors(bg, finalColor)
+							}
+
+							// r.safeSetPixel(x, y, finalColor)
+							// r.DepthBuffer[y][x] = float32(depth)
+							matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+							r.safeSetPixel(x, y, *matColor)
+							r.DepthBuffer[y][x] = float32(depth)
+
+						}
+					} else {
+						// Fallback to material color (fully opaque)
+						matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+						r.safeSetPixel(x, y, *matColor)
+						r.DepthBuffer[y][x] = float32(depth)
+					}
 				}
 			}
 		}
@@ -562,12 +596,14 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		}
 	}
 }
+
 func (r *Renderer3D) calculateLighting(
 	tri *assets.Triangle,
 	viewDir nomath.Vec3,
 	lights []*Light,
 	u, v, w float64,
 ) *lookdev.ColorRGBA {
+
 	baseColor := tri.DiffuseBuffer
 	if baseColor == nil {
 		return lookdev.NewColorRGBA() // fallback gray
@@ -600,7 +636,7 @@ func (r *Renderer3D) calculateLighting(
 		var dist float64
 		var attenuation float64 = 1.0
 
-		if light.Type == LightTypeDirectional {
+		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
 			lightDir = light.GetDirection().Normalize()
 		} else {
 			lightDir = light.Transform.Position.Subtract(fragmentPos)
@@ -621,8 +657,9 @@ func (r *Renderer3D) calculateLighting(
 		}
 
 		// Shadow calculation (only if light casts shadows)
+		// Shadow calculation (only if light casts shadows)
 		shadowFactor := 0.0
-		if light.Shadows && light.Intensity > 0.1 { // Skip shadow calc for weak lights
+		if light.Shadows && light.Intensity > 0.1 {
 			if r.isInShadow(fragmentPos, light) {
 				shadowFactor = 1.0
 			}

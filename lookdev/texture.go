@@ -50,16 +50,13 @@ func LoadTexture(filename string) (*Texture, error) {
 }
 
 func (t *Texture) Sample(u, v float64) ColorRGBA {
-	// Wrap texture coordinates
 	u = u - math.Floor(u)
 	v = v - math.Floor(v)
-
-	x := int(u * float64(t.Width))
-	y := int(v * float64(t.Height))
-
-	// Clamp to texture dimensions
+	x := int(u * float64(t.Width-1))
+	y := int(v * float64(t.Height-1))
 	x = max(0, min(x, t.Width-1))
 	y = max(0, min(y, t.Height-1))
+
 	return t.Pixels[y*t.Width+x]
 }
 
