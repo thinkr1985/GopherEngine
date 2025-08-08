@@ -23,3 +23,16 @@ func NewMaterial(name string) *Material {
 		Reflectivity:  0.0,
 	}
 }
+
+type SerializableMaterial struct {
+	Name                string    `json:"name"`
+	DiffuseColor        ColorRGBA `json:"diffuse_color"`
+	SpecularColor       ColorRGBA `json:"specular_color"`
+	Shininess           float64   `json:"shininess"`
+	Transparency        float64   `json:"transparency"`
+	Reflectivity        float64   `json:"reflectivity"`
+	DiffuseTexture      string    `json:"diffuse_texture,omitempty"`
+	SpecularTexture     string    `json:"specular_texture,omitempty"`
+	NormalTexture       string    `json:"normal_texture,omitempty"`
+	TransparencyTexture string    `json:"transparency_texture,omitempty"`
+}

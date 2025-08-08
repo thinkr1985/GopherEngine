@@ -1,6 +1,7 @@
 package lookdev
 
 import (
+	"bytes"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -11,6 +12,7 @@ import (
 type Texture struct {
 	Width, Height int
 	Pixels        []ColorRGBA
+	Path          string
 }
 
 func LoadTexture(filename string) (*Texture, error) {
@@ -46,6 +48,7 @@ func LoadTexture(filename string) (*Texture, error) {
 		Width:  width,
 		Height: height,
 		Pixels: pixels,
+		Path:   filename,
 	}, nil
 }
 
@@ -72,4 +75,35 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func NewTextureFromBytes(data []byte, name string) *Texture {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	pixels := make([]ColorRGBA, width*height)
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			r, g, b, a := img.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
+			pixels[y*width+x] = ColorRGBA{
+				R: uint8(r >> 8),
+				G: uint8(g >> 8),
+				B: uint8(b >> 8),
+				A: float64(a>>8) / 255.0,
+			}
+		}
+	}
+
+	return &Texture{
+		Width:  width,
+		Height: height,
+		Pixels: pixels,
+		Path:   name,
+	}
 }

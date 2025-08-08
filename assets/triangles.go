@@ -123,6 +123,7 @@ func Barycentric(p nomath.Vec2, v0Screen, v1Screen, v2Screen nomath.Vec2) (u, v,
 	w = 1 - u - v
 	return
 }
+
 func (t *Triangle) PreComputeBuffers() {
 	if t.BufferCache || t.Material == nil {
 		return

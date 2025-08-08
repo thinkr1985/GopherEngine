@@ -212,3 +212,17 @@ func (t *Transform) UpdateModelMatrix() {
 		Multiply(translation)
 	t.Dirty = false
 }
+
+type SerializableTransform struct {
+	Position Vec3 `json:"position"`
+	Rotation Vec3 `json:"rotation"`
+	Scale    Vec3 `json:"scale"`
+}
+
+func (t *Transform) ToSerializable() SerializableTransform {
+	return SerializableTransform{
+		Position: t.Position,
+		Rotation: t.Rotation,
+		Scale:    t.Scale,
+	}
+}

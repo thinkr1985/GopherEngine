@@ -3,10 +3,12 @@ package assets
 import (
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"GopherEngine/utilities"
 )
 
 type Geometry struct {
 	Name        string
+	ID          string
 	Transform   *nomath.Transform
 	Vertices    []*nomath.Vec3
 	Normals     []*nomath.Vec3
@@ -19,6 +21,7 @@ type Geometry struct {
 func (g *Geometry) NewGeometry() *Geometry {
 	geo := &Geometry{
 		Name:        "Object001",
+		ID:          utilities.GenerateUniqueID(),
 		Transform:   nomath.NewTransform(),
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial("DefaultMaterial"),

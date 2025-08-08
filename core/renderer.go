@@ -4,6 +4,7 @@ import (
 	"GopherEngine/assets"
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"GopherEngine/utilities"
 	"image"
 	"image/color"
 	"image/png"
@@ -43,14 +44,14 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled: true,
+		FogEnabled: false,
 		FogColor:   lookdev.ColorRGBA{R: 180, G: 180, B: 190, A: 1.0},
 		FogDensity: 0.05,
 		FogStart:   5.0,
 		FogEnd:     30.0,
 	}
-	r.CPU = GetCPU()
-	r.GPU = GetGPU()
+	r.CPU = utilities.GetCPU()
+	r.GPU = utilities.GetGPU()
 	// Init buffers
 	for y := 0; y < SCREEN_HEIGHT; y++ {
 		r.Framebuffer[y] = make([]lookdev.ColorRGBA, SCREEN_WIDTH)
@@ -372,31 +373,67 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
 	}
 }
+
 func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera) {
+	// Convert to screen coordinates once
 	x0, y0 := r.NDCToScreen(verts[0])
 	x1, y1 := r.NDCToScreen(verts[1])
 	x2, y2 := r.NDCToScreen(verts[2])
 
-	minX := max(0, min(x0, min(x1, x2)))
-	maxX := min(r.GetWidth()-1, max(x0, max(x1, x2)))
-	minY := max(0, min(y0, min(y1, y2)))
-	maxY := min(r.GetHeight()-1, max(y0, max(y1, y2)))
+	// Calculate bounding box with early exit
+	minX := max(0, min3(x0, x1, x2))
+	maxX := min(r.GetWidth()-1, max3(x0, x1, x2))
+	minY := max(0, min3(y0, y1, y2))
+	maxY := min(r.GetHeight()-1, max3(y0, y1, y2))
 
 	if minX > maxX || minY > maxY {
 		return
 	}
 
+	// Precompute values for barycentric coordinates
 	v0Screen := nomath.Vec2{U: float64(x0), V: float64(y0)}
 	v1Screen := nomath.Vec2{U: float64(x1), V: float64(y1)}
 	v2Screen := nomath.Vec2{U: float64(x2), V: float64(y2)}
 
+	// Precompute depth values
 	depth0 := (verts[0].Z + 1) * 0.5
 	depth1 := (verts[1].Z + 1) * 0.5
 	depth2 := (verts[2].Z + 1) * 0.5
 
-	// Pre-calculate view matrix and camera position for depth calculation
+	// Precompute camera position
 	cameraPos := camera.Transform.Position
 
+	// Precompute model matrix
+	modelMatrix := tri.Parent.Transform.GetMatrix()
+
+	// Precompute triangle vertices in world space
+	worldV0 := modelMatrix.MultiplyVec4(tri.V0.ToVec4(1.0)).ToVec3()
+	worldV1 := modelMatrix.MultiplyVec4(tri.V1.ToVec4(1.0)).ToVec3()
+	worldV2 := modelMatrix.MultiplyVec4(tri.V2.ToVec4(1.0)).ToVec3()
+
+	/*
+		// Precompute lighting if possible
+		var baseColor lookdev.ColorRGBA
+		if tri.HasTexture {
+			// Sample texture at vertices and interpolate
+			uv0 := tri.InterpolatedUV(1, 0, 0)
+			uv1 := tri.InterpolatedUV(0, 1, 0)
+			uv2 := tri.InterpolatedUV(0, 0, 1)
+			color0 := tri.Material.DiffuseTexture.Sample(uv0.U, uv0.V)
+			color1 := tri.Material.DiffuseTexture.Sample(uv1.U, uv1.V)
+			color2 := tri.Material.DiffuseTexture.Sample(uv2.U, uv2.V)
+			baseColor = lookdev.ColorRGBA{
+				R: (color0.R + color1.R + color2.R) / 3,
+				G: (color0.G + color1.G + color2.G) / 3,
+				B: (color0.B + color1.B + color2.B) / 3,
+				A: (color0.A + color1.A + color2.A) / 3,
+			}
+		} else {
+			baseColor = *tri.DiffuseBuffer
+		}
+	*/
+
+	// Rasterize the triangle
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
 			p := nomath.Vec2{U: float64(x), V: float64(y)}
@@ -405,26 +442,23 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 			if u >= 0 && v >= 0 && w >= 0 {
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-					// Calculate world position of this fragment
-					worldPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
-					transformedPos := tri.Parent.Transform.GetMatrix().MultiplyVec4(worldPos.ToVec4(1.0)).ToVec3()
+					// Interpolate world position
+					worldPos := worldV0.Multiply(u).Add(worldV1.Multiply(v)).Add(worldV2.Multiply(w))
+					distance := cameraPos.DistanceTo(worldPos)
 
-					// Calculate true distance from camera
-					distance := cameraPos.DistanceTo(transformedPos)
+					// Calculate lighting
+					finalColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
 
-					// Calculate lighting as before
-					matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
-
-					// Apply fog based on true world distance
-					finalColor := r.applyFog(*matColor, distance)
+					// Apply fog
+					new_color := r.applyFog(*finalColor, distance)
 
 					// Alpha blending and pixel drawing
 					if finalColor.A > 0.01 {
 						if finalColor.A < 1.0 {
 							bg := r.Framebuffer[y][x]
-							finalColor = lookdev.BlendColors(bg, finalColor)
+							new_color = lookdev.BlendColors(bg, new_color)
 						}
-						r.safeSetPixel(x, y, finalColor)
+						r.safeSetPixel(x, y, new_color)
 						r.DepthBuffer[y][x] = float32(depth)
 					}
 				}
@@ -432,6 +466,7 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 		}
 	}
 }
+
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	// fmt.Printf("Pixel(%d,%d) = %v\n", x, y, color)
 	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
@@ -814,4 +849,31 @@ func clamp(value, min, max float64) float64 {
 		return max
 	}
 	return value
+}
+
+// Helper functions for min/max of 3 values
+func min3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
+}
+
+func max3(a, b, c int) int {
+	if a > b {
+		if a > c {
+			return a
+		}
+		return c
+	}
+	if b > c {
+		return b
+	}
+	return c
 }

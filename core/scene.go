@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 )
 
+var UNIQUE_NAMES []string
 var SCREEN_WIDTH int = 854
 var SCREEN_HEIGHT int = 480
 
