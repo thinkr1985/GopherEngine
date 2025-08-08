@@ -24,6 +24,12 @@ type Renderer3D struct {
 	cachedWidth  int
 	cachedHeight int
 
+	FogEnabled bool
+	FogColor   lookdev.ColorRGBA
+	FogDensity float64 // Controls how "thick" the fog is
+	FogStart   float64 // Distance where fog starts
+	FogEnd     float64 // Distance where fog is fully opaque
+
 	rowLocks []sync.Mutex // NEW: One mutex per row
 	CPU      string
 	GPU      string
@@ -36,6 +42,12 @@ func NewRenderer3D() *Renderer3D {
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
+
+		FogEnabled: true,
+		FogColor:   lookdev.ColorRGBA{R: 180, G: 180, B: 190, A: 1.0},
+		FogDensity: 0.05,
+		FogStart:   5.0,
+		FogEnd:     30.0,
 	}
 	r.CPU = GetCPU()
 	r.GPU = GetGPU()
@@ -382,8 +394,8 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 	depth1 := (verts[1].Z + 1) * 0.5
 	depth2 := (verts[2].Z + 1) * 0.5
 
-	// Precompute view direction once
-	viewDir := camera.Transform.GetForward().Normalize()
+	// Pre-calculate view matrix and camera position for depth calculation
+	cameraPos := camera.Transform.Position
 
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
@@ -393,19 +405,26 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 			if u >= 0 && v >= 0 && w >= 0 {
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-					// Calculate lighting
-					matColor := r.calculateLighting(camera, tri, viewDir, lights, u, v, w)
+					// Calculate world position of this fragment
+					worldPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
+					transformedPos := tri.Parent.Transform.GetMatrix().MultiplyVec4(worldPos.ToVec4(1.0)).ToVec3()
 
-					// Only draw if not fully transparent
-					if matColor.A > 0.01 {
-						// Alpha blending
-						if matColor.A < 1.0 {
+					// Calculate true distance from camera
+					distance := cameraPos.DistanceTo(transformedPos)
+
+					// Calculate lighting as before
+					matColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+
+					// Apply fog based on true world distance
+					finalColor := r.applyFog(*matColor, distance)
+
+					// Alpha blending and pixel drawing
+					if finalColor.A > 0.01 {
+						if finalColor.A < 1.0 {
 							bg := r.Framebuffer[y][x]
-							finalColor := lookdev.BlendColors(bg, *matColor)
-							r.safeSetPixel(x, y, finalColor)
-						} else {
-							r.safeSetPixel(x, y, *matColor)
+							finalColor = lookdev.BlendColors(bg, finalColor)
 						}
+						r.safeSetPixel(x, y, finalColor)
 						r.DepthBuffer[y][x] = float32(depth)
 					}
 				}
@@ -413,7 +432,6 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 		}
 	}
 }
-
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	// fmt.Printf("Pixel(%d,%d) = %v\n", x, y, color)
 	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
@@ -575,7 +593,6 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 }
 
 func (r *Renderer3D) calculateLighting(
-	camera *PerspectiveCamera,
 	tri *assets.Triangle,
 	viewDir nomath.Vec3,
 	lights []*Light,
@@ -674,29 +691,7 @@ func (r *Renderer3D) calculateLighting(
 		B: bFinal,
 		A: baseColor.A,
 	}
-
-	// === ✅ ADVANCED FOG SECTION (Exponential + Intensity Control) ===
-	fogColor := lookdev.ColorRGBA{R: 120, G: 150, B: 180, A: 1.0} // Fog color
-	fogNear := 5.0                                                // Distance where fog starts
-	fogFar := 20.0                                                // Distance where fog reaches maximum
-	fogIntensity := 2.0                                           // 0.0 = no fog, 1.0 = full fog effect
-	fogDensity := 0.07                                            // Controls exponential falloff
-
-	cameraPos := camera.Transform.Position
-	depth := fragmentPos.Subtract(cameraPos).Length()
-
-	// Clamp depth to fog range
-	linearFactor := math.Max(0.0, math.Min(1.0, (depth-fogNear)/(fogFar-fogNear)))
-
-	// Apply exponential falloff
-	expFactor := 1.0 - math.Exp(-fogDensity*depth)
-
-	// Blend both and scale by fogIntensity
-	combinedFogFactor := linearFactor * expFactor * fogIntensity
-	combinedFogFactor = math.Max(0.0, math.Min(1.0, combinedFogFactor)) // clamp again
-
-	finalColor := litColor.Lerp(&fogColor, combinedFogFactor)
-	return finalColor
+	return litColor
 
 }
 
@@ -786,4 +781,37 @@ func clampColor(value float64) uint8 {
 		return 255
 	}
 	return uint8(value)
+}
+
+func (r *Renderer3D) applyFog(color lookdev.ColorRGBA, distance float64) lookdev.ColorRGBA {
+	if !r.FogEnabled || distance < r.FogStart {
+		return color
+	}
+
+	r.FogEnabled = true
+	r.FogColor = lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0}
+	r.FogStart = 10.0
+	r.FogEnd = 50
+	r.FogDensity = 0.1
+
+	fogFactor := 1.0 - math.Exp(-math.Pow(r.FogDensity*distance, 2))
+	fogFactor = clamp(fogFactor, 0.0, 1.0)
+
+	// Linear interpolation between color and fog color
+	return lookdev.ColorRGBA{
+		R: uint8(float64(color.R)*(1-fogFactor) + float64(r.FogColor.R)*fogFactor),
+		G: uint8(float64(color.G)*(1-fogFactor) + float64(r.FogColor.G)*fogFactor),
+		B: uint8(float64(color.B)*(1-fogFactor) + float64(r.FogColor.B)*fogFactor),
+		A: color.A,
+	}
+}
+
+func clamp(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }

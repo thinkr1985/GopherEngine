@@ -38,7 +38,7 @@ func Window(scene *core.Scene) {
 	scene.ResolutionScale = 1.0
 	scene.AutoResolution = false
 	scene.LastFPS = 60
-	scene.MinResolutionScale = 0.1
+	scene.MinResolutionScale = 0.5
 	scene.LastScaleChange = rl.GetTime()
 	scene.FPSHistory = make([]int, 0, 10)
 
@@ -148,7 +148,7 @@ func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float
 		(1.0-scene.MinResolutionScale)*fpsRatio*fpsRatio
 
 	// Only update target if significantly different
-	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.05 {
+	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.1 {
 		scene.TargetResolutionScale = newTarget
 		scene.LastScaleChange = currentTime
 	}
