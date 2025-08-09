@@ -174,12 +174,10 @@ func (c *PerspectiveCamera) CacheMatrices() {
 	c.Scene.cachedViewProjMatrix = viewProjMatrix
 	c.DirtyFrustum = false
 }
-
 func (c *PerspectiveCamera) Update() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	c.Transform.UpdateModelMatrix()
-	c.CacheMatrices()
-
+	c.CacheMatrices() // This updates view and projection matrices
 }

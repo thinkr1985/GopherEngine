@@ -25,7 +25,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(120)
+	rl.SetTargetFPS(60)
 
 }
 
@@ -90,7 +90,7 @@ func Window(scene *core.Scene) {
 		HandleInputEvents(scene)
 
 		// Render 3D
-		scene.RenderOnThread()
+		scene.RenderOnThreads()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -177,13 +177,6 @@ func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
 	// Resize will happen in next handleWindowResize call
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 func draw_debug_stats(scene *core.Scene) {
 	avgFPS := 0
 	if len(scene.FPSHistory) > 0 {
@@ -198,7 +191,7 @@ func draw_debug_stats(scene *core.Scene) {
 		scene.TargetResolutionScale*100,
 		scene.AutoResolution,
 		scene.DrawnTriangles,
-		len(scene.Triangles),
+		scene.TotalTriangleCounter,
 		scene.Renderer.CPU,
 		scene.Renderer.GPU)
 

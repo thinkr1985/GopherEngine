@@ -122,3 +122,22 @@ func (v Vec3) DistanceTo(other Vec3) float64 {
 	dz := v.Z - other.Z
 	return math.Sqrt(dx*dx + dy*dy + dz*dz)
 }
+
+// Divide by scalar
+func (v Vec3) Divide(s float64) Vec3 {
+	if s != 0 {
+		inv := 1.0 / s
+		return Vec3{v.X * inv, v.Y * inv, v.Z * inv}
+	}
+	// Return unchanged if divide by zero
+	return v
+}
+
+// Component-wise divide
+func (v Vec3) DivideVec(o Vec3) Vec3 {
+	return Vec3{
+		X: v.X / o.X,
+		Y: v.Y / o.Y,
+		Z: v.Z / o.Z,
+	}
+}

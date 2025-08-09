@@ -23,6 +23,7 @@ type Assembly struct {
 
 func NewAssembly() *Assembly {
 	a := Assembly{
+		Name:        utilities.GenerateID(),
 		ID:          utilities.GenerateUniqueID(),
 		isDynamic:   false,
 		IsVisible:   true,

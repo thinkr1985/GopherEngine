@@ -16,15 +16,17 @@ type Geometry struct {
 	Triangles   []*Triangle
 	BoundingBox *nomath.BoundingBox
 	Material    *lookdev.Material
+	IsVisible   bool
 }
 
 func (g *Geometry) NewGeometry() *Geometry {
 	geo := &Geometry{
-		Name:        "Object001",
+		Name:        utilities.GenerateID(),
 		ID:          utilities.GenerateUniqueID(),
 		Transform:   nomath.NewTransform(),
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial("DefaultMaterial"),
+		IsVisible:   true,
 	}
 	geo.ComputeBoundingBox()
 	return geo

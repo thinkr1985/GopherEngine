@@ -85,7 +85,7 @@ func NewSunLight(s *Scene) *Light {
 		scene:       s,
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
-		Intensity:   1.0,
+		Intensity:   0.5,
 		Attenuation: 1.0,
 		Type:        LightTypeSun,
 		Shadows:     true,

@@ -2,7 +2,6 @@ package core
 
 import (
 	"GopherEngine/assets"
-	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
 	"math"
 	"runtime"
@@ -23,15 +22,17 @@ type RenderTask struct {
 }
 
 type Scene struct {
-	Renderer       *Renderer3D
-	Objects        []*assets.Geometry
-	Camera         *PerspectiveCamera
-	DefaultLight   *Light
-	ViewAxes       *ViewAxes
-	Grid           *Grid
-	Lights         []*Light
-	Triangles      []*assets.Triangle
-	DrawnTriangles int32
+	Renderer             *Renderer3D
+	Assemblies           []*assets.Assembly
+	Objects              []*assets.Geometry
+	Camera               *PerspectiveCamera
+	DefaultLight         *Light
+	ViewAxes             *ViewAxes
+	Grid                 *Grid
+	Lights               []*Light
+	Triangles            []*assets.Triangle
+	DrawnTriangles       int32
+	TotalTriangleCounter int32
 
 	// caching matrices
 	cachedViewMatrix       nomath.Mat4
@@ -80,27 +81,42 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-
-	// s.DefaultLight.Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
-	// s.DefaultLight.Transform.Dirty = true
-	s.Renderer.PreComputeLightDirs(s)
-	// Update camera first
+	// Important to update camera first!
 	s.Camera.Update()
 
-	// Update other objects
+	// Update lights
 	for _, light := range s.Lights {
 		light.Update()
 	}
-	for _, obj := range s.Objects {
-		obj.Update()
+
+	// Update assemblies
+	for _, assembly := range s.Assemblies {
+		assembly.Update()
 	}
+
+	// Update renderer light directions
+	s.Renderer.PreComputeLightDirs(s)
+}
+
+func (s *Scene) AddAssembly(assembly *assets.Assembly) {
+	s.Assemblies = append(s.Assemblies, assembly)
+	s.Triangles = append(s.Triangles, assembly.Triangles...)
+}
+
+func (s *Scene) LoadAsset(asset_path string) {
+	assembly, err := assets.AssetImport(asset_path)
+	if err != nil {
+		return
+	}
+	s.AddAssembly(assembly)
 
 }
 
-func (s *Scene) AddObject(geom *assets.Geometry) {
-	geom.PrecomputeTextureBuffers()
-	s.Objects = append(s.Objects, geom)
-	s.Triangles = append(s.Triangles, geom.Triangles...)
+func (s *Scene) LoadAssembly(assembly_path string) {
+	assembly := assets.NewAssembly()
+	assembly.LoadAssembly(assembly_path)
+	s.AddAssembly(assembly)
+
 }
 
 func (s *Scene) RenderScene() {
@@ -125,7 +141,6 @@ func (s *Scene) RenderScene() {
 	for _, light := range s.Lights {
 		if light.Shadows {
 			s.Renderer.RenderShadowMap(light, s)
-			// SaveShadowMapAsImage(light, "shadowmap_debug.png")
 		}
 	}
 
@@ -133,132 +148,158 @@ func (s *Scene) RenderScene() {
 	viewProjMatrix := s.cachedViewProjMatrix
 
 	// Precompute light dot normal per triangle
-	for _, triangle := range s.Triangles {
-		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) ||
-			triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+	for _, assembly := range s.Assemblies {
+
+		if !assembly.IsVisible {
 			continue
 		}
 
-		modelMatrix := triangle.Parent.Transform.GetMatrix()
-		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
-		normalMatrix := modelMatrix.Inverse().Transpose()
-		// Transform triangle normal using normalMatrix
-		worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
-		triangle.WorldNormal = worldNormal
+		for _, geom := range assembly.Geometries {
+			if !s.Camera.IsVisible(geom.BoundingBox) || !geom.IsVisible {
+				continue
+			}
 
-		// Precompute light dot normal for each light
-		triangle.LightDotNormals = make([]float64, len(s.Lights))
-		for i, light := range s.Lights {
-			lightDir := light.GetDirection() // assuming normalized direction
-			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+			for _, triangle := range geom.Triangles {
+				if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+					continue
+				}
+				modelMatrix := geom.Transform.GetMatrix()
+				mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+				normalMatrix := modelMatrix.Inverse().Transpose()
+				// Transform triangle normal using normalMatrix
+				worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
+				triangle.WorldNormal = worldNormal
+
+				// Precompute light dot normal for each light
+				triangle.LightDotNormals = make([]float64, len(s.Lights))
+				for i, light := range s.Lights {
+					lightDir := light.GetDirection() // assuming normalized direction
+					triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+				}
+
+				s.Renderer.RenderTriangle(&mvpMatrix, &modelMatrix, s.Camera, triangle, s.Lights, s)
+				s.DrawnTriangles++
+			}
 		}
-
-		s.Renderer.RenderTriangle(&mvpMatrix, s.Camera, triangle, s.Lights, s)
-		s.DrawnTriangles++
 	}
 }
 
-func (s *Scene) RenderOnThread() {
+func (s *Scene) RenderOnThreads() {
+	// First update all scene elements and matrices
 	s.UpdateScene()
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
 	s.Renderer.PreComputeLightDirs(s)
 
-	// Clear all shadow maps first
+	// Update and cache matrices with write lock
+	s.matrixMutex.Lock()
+	s.cachedViewMatrix = s.Camera.GetViewMatrix()
+	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
+	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
+	s.matrixMutex.Unlock()
+
+	// Clear shadow maps
+	var shadowWG sync.WaitGroup
 	for _, light := range s.Lights {
 		if light.Shadows && light.ShadowMap != nil {
-			for y := 0; y < light.ShadowMap.Height; y++ {
-				for x := 0; x < light.ShadowMap.Width; x++ {
-					light.ShadowMap.Depth[y][x] = math.MaxFloat64
+			shadowWG.Add(1)
+			go func(sm *ShadowMap) {
+				defer shadowWG.Done()
+				for y := range sm.Depth {
+					row := sm.Depth[y]
+					for x := range row {
+						row[x] = math.MaxFloat64
+					}
 				}
-			}
+			}(light.ShadowMap)
 		}
 	}
+	shadowWG.Wait()
 
-	// Drawing scene elements first!
+	// Draw overlays
 	s.Grid.Draw(s.Renderer, s.Camera)
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
 	for _, light := range s.Lights {
 		light.DrawLight()
 	}
 
-	// Safely get the view-projection matrix
-	s.matrixMutex.RLock()
-	viewProjMatrix := s.cachedViewProjMatrix
-	s.matrixMutex.RUnlock()
+	// Get view direction (after matrix updates)
 	viewDir := s.Camera.Transform.GetForward()
 
-	var tasks []RenderTask
+	// Worker pool setup
+	numWorkers := runtime.NumCPU()
+	workChan := make(chan RenderTask, numWorkers*4)
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
 
-	// First pass: generate shadow maps and collect render tasks
-	for _, triangle := range s.Triangles {
-		// Skip entire object if not in view
-		if !s.Camera.IsVisible(triangle.Parent.BoundingBox) {
+	// Worker function
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			defer wg.Done()
+			var localCount int32
+
+			for task := range workChan {
+				tri := task.Triangle
+
+				// Do shadow map rendering inside the worker
+				for li, light := range s.Lights {
+					if light.Shadows && light.ShadowMap != nil {
+						lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+						s.renderTriangleToShadowMap(tri, lightVP.Multiply(task.ModelMatrix), light)
+					}
+					task.LightDots[li] = max(0, tri.WorldNormal.Dot(light.GetDirection()))
+				}
+
+				// Render the triangle using the correct matrices
+				s.Renderer.RenderTriangle(&task.MVP, &task.ModelMatrix, s.Camera, tri, s.Lights, s)
+				localCount++
+			}
+			atomic.AddInt32(&s.DrawnTriangles, localCount)
+		}()
+	}
+
+	// Traverse scene and stream triangles to workers
+	for _, assembly := range s.Assemblies {
+		if !assembly.IsVisible {
 			continue
 		}
 
-		// Optional: finer culling per triangle
-		if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
-			continue
-		}
-
-		modelMatrix := triangle.Parent.Transform.GetMatrix()
-		mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
-		normalMatrix := modelMatrix.Inverse().Transpose()
-
-		// Transform triangle normal using normalMatrix
-		worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
-		triangle.WorldNormal = worldNormal
-
-		// Precompute light dot normal for each light
-		triangle.LightDotNormals = make([]float64, len(s.Lights))
-		for i, light := range s.Lights {
-			if light.Shadows && light.ShadowMap != nil {
-				// Render to shadow map if needed
-				lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
-				shadowMVP := lightVP.Multiply(modelMatrix)
-				s.renderTriangleToShadowMap(triangle, shadowMVP, light)
+		for _, geom := range assembly.Geometries {
+			if !geom.IsVisible || !s.Camera.IsVisible(geom.BoundingBox) {
+				continue
 			}
 
-			lightDir := light.GetDirection()
-			triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+			modelMatrix := geom.Transform.GetMatrix()
+			mvpMatrix := s.cachedViewProjMatrix.Multiply(modelMatrix)
+			normalMatrix := modelMatrix.Inverse().Transpose()
+
+			for _, tri := range geom.Triangles {
+				// Backface culling
+				if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
+					continue
+				}
+
+				// Update world normal
+				tri.WorldNormal = normalMatrix.TransformVec3(tri.Normal()).Normalize()
+
+				// Reuse light dots slice
+				if cap(tri.LightDotNormals) < len(s.Lights) {
+					tri.LightDotNormals = make([]float64, len(s.Lights))
+				} else {
+					tri.LightDotNormals = tri.LightDotNormals[:len(s.Lights)]
+				}
+
+				// Push to worker
+				workChan <- RenderTask{
+					Triangle:     tri,
+					MVP:          mvpMatrix,
+					NormalMatrix: normalMatrix,
+					ModelMatrix:  modelMatrix,
+					LightDots:    tri.LightDotNormals,
+				}
+			}
 		}
-
-		tasks = append(tasks, RenderTask{
-			Triangle:     triangle,
-			MVP:          mvpMatrix,
-			NormalMatrix: normalMatrix,
-			ModelMatrix:  modelMatrix,
-			LightDots:    triangle.LightDotNormals,
-		})
 	}
 
-	// Clear the framebuffer and depth buffer
-	s.Renderer.Clear(lookdev.ColorRGBA{R: 0, G: 0, B: 0, A: 255})
-
-	// Second pass: render scene with parallel workers
-	numWorkers := runtime.NumCPU()
-	var wg sync.WaitGroup
-	workChan := make(chan RenderTask, len(tasks))
-
-	worker := func() {
-		defer wg.Done()
-		var localCount int32
-
-		for task := range workChan {
-			s.Renderer.RenderTriangle(&task.MVP, s.Camera, task.Triangle, s.Lights, s)
-			localCount++
-		}
-		atomic.AddInt32(&s.DrawnTriangles, localCount)
-	}
-
-	wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		go worker()
-	}
-
-	for _, task := range tasks {
-		workChan <- task
-	}
 	close(workChan)
 	wg.Wait()
 }

@@ -44,7 +44,7 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled: true,
+		FogEnabled: false,
 		FogColor:   lookdev.ColorRGBA{R: 180, G: 180, B: 190, A: 1.0},
 		FogDensity: 0.05,
 		FogStart:   5.0,
@@ -299,9 +299,8 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		// }
 	}
 }
-func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
+func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
 	nearPlane := camera.NearPlane
-
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
@@ -331,7 +330,7 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		for i := 0; i < 3; i++ {
 			screenVerts[i] = clipVerts[i].ToVec3()
 		}
-		r.rasterizeTriangle(screenVerts, tri, lights, camera)
+		r.rasterizeTriangle(modelMatrix, screenVerts, tri, lights, camera)
 		return
 	}
 
@@ -366,15 +365,15 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, camera *PerspectiveC
 		return // degenerate
 	}
 	if len(newVerts) == 3 {
-		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
+		r.rasterizeTriangle(modelMatrix, [3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
 	} else if len(newVerts) == 4 {
 		// Split quad into 2 triangles
-		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
-		r.rasterizeTriangle([3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
+		r.rasterizeTriangle(modelMatrix, [3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
+		r.rasterizeTriangle(modelMatrix, [3]nomath.Vec3{newVerts[0], newVerts[2], newVerts[3]}, tri, lights, camera)
 	}
 }
 
-func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera) {
+func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath.Vec3, tri *assets.Triangle, lights []*Light, camera *PerspectiveCamera) {
 	// Convert to screen coordinates once
 	x0, y0 := r.NDCToScreen(verts[0])
 	x1, y1 := r.NDCToScreen(verts[1])
@@ -403,35 +402,10 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 	// Precompute camera position
 	cameraPos := camera.Transform.Position
 
-	// Precompute model matrix
-	modelMatrix := tri.Parent.Transform.GetMatrix()
-
 	// Precompute triangle vertices in world space
 	worldV0 := modelMatrix.MultiplyVec4(tri.V0.ToVec4(1.0)).ToVec3()
 	worldV1 := modelMatrix.MultiplyVec4(tri.V1.ToVec4(1.0)).ToVec3()
 	worldV2 := modelMatrix.MultiplyVec4(tri.V2.ToVec4(1.0)).ToVec3()
-
-	/*
-		// Precompute lighting if possible
-		var baseColor lookdev.ColorRGBA
-		if tri.HasTexture {
-			// Sample texture at vertices and interpolate
-			uv0 := tri.InterpolatedUV(1, 0, 0)
-			uv1 := tri.InterpolatedUV(0, 1, 0)
-			uv2 := tri.InterpolatedUV(0, 0, 1)
-			color0 := tri.Material.DiffuseTexture.Sample(uv0.U, uv0.V)
-			color1 := tri.Material.DiffuseTexture.Sample(uv1.U, uv1.V)
-			color2 := tri.Material.DiffuseTexture.Sample(uv2.U, uv2.V)
-			baseColor = lookdev.ColorRGBA{
-				R: (color0.R + color1.R + color2.R) / 3,
-				G: (color0.G + color1.G + color2.G) / 3,
-				B: (color0.B + color1.B + color2.B) / 3,
-				A: (color0.A + color1.A + color2.A) / 3,
-			}
-		} else {
-			baseColor = *tri.DiffuseBuffer
-		}
-	*/
 
 	// Rasterize the triangle
 	for y := minY; y <= maxY; y++ {
@@ -440,8 +414,10 @@ func (r *Renderer3D) rasterizeTriangle(verts [3]nomath.Vec3, tri *assets.Triangl
 			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
 
 			if u >= 0 && v >= 0 && w >= 0 {
+				// fmt.Print("******************************************")
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
+
 					// Interpolate world position
 					worldPos := worldV0.Multiply(u).Add(worldV1.Multiply(v)).Add(worldV2.Multiply(w))
 					distance := cameraPos.DistanceTo(worldPos)
@@ -563,63 +539,73 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 	lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
 
 	// Render all triangles from light's perspective
-	for _, triangle := range scene.Triangles {
-		modelMatrix := triangle.Parent.Transform.GetMatrix()
-		mvpMatrix := lightVP.Multiply(modelMatrix)
-
-		// Transform vertices to clip space
-		v0 := mvpMatrix.MultiplyVec4(triangle.V0.ToVec4(1.0))
-		v1 := mvpMatrix.MultiplyVec4(triangle.V1.ToVec4(1.0))
-		v2 := mvpMatrix.MultiplyVec4(triangle.V2.ToVec4(1.0))
-
-		// Skip triangles that are completely behind the light
-		if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
+	for _, assembly := range scene.Assemblies {
+		if !assembly.IsVisible {
 			continue
 		}
+		for _, geom := range assembly.Geometries {
+			if !scene.Camera.IsVisible(geom.BoundingBox) || !geom.IsVisible {
+				continue
+			}
+			for _, triangle := range geom.Triangles {
+				modelMatrix := geom.Transform.GetMatrix()
+				mvpMatrix := lightVP.Multiply(modelMatrix)
 
-		// Perform perspective divide
-		ndc0 := v0.Divide(v0.W).ToVec3()
-		ndc1 := v1.Divide(v1.W).ToVec3()
-		ndc2 := v2.Divide(v2.W).ToVec3()
+				// Transform vertices to clip space
+				v0 := mvpMatrix.MultiplyVec4(triangle.V0.ToVec4(1.0))
+				v1 := mvpMatrix.MultiplyVec4(triangle.V1.ToVec4(1.0))
+				v2 := mvpMatrix.MultiplyVec4(triangle.V2.ToVec4(1.0))
 
-		// Convert to shadow map coordinates [0,1] range
-		v0Screen := nomath.Vec2{
-			U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-			V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
-		}
-		v1Screen := nomath.Vec2{
-			U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-			V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
-		}
-		v2Screen := nomath.Vec2{
-			U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-			V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
-		}
+				// Skip triangles that are completely behind the light
+				if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
+					continue
+				}
 
-		// Convert depth from [-1,1] to [0,1] range
-		depth0 := (ndc0.Z + 1) * 0.5
-		depth1 := (ndc1.Z + 1) * 0.5
-		depth2 := (ndc2.Z + 1) * 0.5
+				// Perform perspective divide
+				ndc0 := v0.Divide(v0.W).ToVec3()
+				ndc1 := v1.Divide(v1.W).ToVec3()
+				ndc2 := v2.Divide(v2.W).ToVec3()
 
-		// Find bounding box in shadow map
-		minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
-		maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
-		minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
-		maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
+				// Convert to shadow map coordinates [0,1] range
+				v0Screen := nomath.Vec2{
+					U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+					V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
+				}
+				v1Screen := nomath.Vec2{
+					U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+					V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
+				}
+				v2Screen := nomath.Vec2{
+					U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+					V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
+				}
 
-		// Rasterize triangle to shadow map
-		for y := minY; y <= maxY; y++ {
-			for x := minX; x <= maxX; x++ {
-				p := nomath.Vec2{U: float64(x), V: float64(y)}
-				u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
+				// Convert depth from [-1,1] to [0,1] range
+				depth0 := (ndc0.Z + 1) * 0.5
+				depth1 := (ndc1.Z + 1) * 0.5
+				depth2 := (ndc2.Z + 1) * 0.5
 
-				if u >= 0 && v >= 0 && w >= 0 {
-					// Interpolate depth
-					depth := u*depth0 + v*depth1 + w*depth2
+				// Find bounding box in shadow map
+				minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
+				maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
+				minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
+				maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
+				// Rasterize triangle to shadow map
+				for y := minY; y <= maxY; y++ {
+					for x := minX; x <= maxX; x++ {
+						p := nomath.Vec2{U: float64(x), V: float64(y)}
+						u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
 
-					// Update shadow map depth if this is closer
-					if depth < light.ShadowMap.Depth[y][x] {
-						light.ShadowMap.Depth[y][x] = depth
+						if u >= 0 && v >= 0 && w >= 0 {
+
+							// Interpolate depth
+							depth := u*depth0 + v*depth1 + w*depth2
+
+							// Update shadow map depth if this is closer
+							if depth < light.ShadowMap.Depth[y][x] {
+								light.ShadowMap.Depth[y][x] = depth
+							}
+						}
 					}
 				}
 			}
@@ -876,4 +862,61 @@ func max3(a, b, c int) int {
 		return b
 	}
 	return c
+}
+
+// Add this to your Renderer3D struct methods
+func (r *Renderer3D) calculateShadowFactor(tri *assets.Triangle, lightNDC nomath.Vec3, light *Light) float64 {
+	if !light.Shadows || light.ShadowMap == nil {
+		return 0.0
+	}
+
+	// Convert to shadow map coordinates [0,1] range
+	sx := (lightNDC.X + 1) * 0.5
+	sy := (1 - (lightNDC.Y+1)*0.5)
+
+	// Early rejection if outside shadow map
+	if sx < 0 || sx > 1 || sy < 0 || sy > 1 {
+		return 0.0
+	}
+
+	// Convert to texture coordinates
+	x := sx * float64(light.ShadowMap.Width-1)
+	y := sy * float64(light.ShadowMap.Height-1)
+
+	// Current fragment's depth in light space [0,1] range
+	fragmentDepth := (lightNDC.Z + 1) * 0.5
+
+	// Calculate normal bias to reduce shadow acne
+	normal := tri.WorldNormal.Normalize()
+	lightDir := light.GetDirection().Normalize()
+	bias := max(0.005*(1.0-normal.Dot(lightDir)), 0.001)
+	fragmentDepth -= bias
+
+	// Rotated grid sampling (16 samples for better quality)
+	offsets := [16]struct{ x, y float64 }{
+		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+		{-1.5, -0.5}, {0.5, -1.5}, {-0.5, 1.5}, {1.5, 0.5},
+		{-1.5, 1.5}, {1.5, -1.5}, {-1.5, -1.5}, {1.5, 1.5},
+		{-0.5, -0.5}, {0.5, -0.5}, {-0.5, 0.5}, {0.5, 0.5},
+	}
+
+	texelSize := 1.0 / float64(light.ShadowMap.Width)
+	shadow := 0.0
+
+	for _, offset := range offsets {
+		sampleX := x + offset.x*texelSize
+		sampleY := y + offset.y*texelSize
+
+		ix := int(sampleX)
+		iy := int(sampleY)
+		if ix < 0 || ix >= light.ShadowMap.Width || iy < 0 || iy >= light.ShadowMap.Height {
+			continue
+		}
+
+		if fragmentDepth > light.ShadowMap.Depth[iy][ix] {
+			shadow += 1.0
+		}
+	}
+
+	return shadow / 16.0
 }

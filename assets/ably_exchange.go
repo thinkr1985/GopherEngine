@@ -6,6 +6,7 @@ import (
 	"GopherEngine/utilities"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,20 +29,24 @@ type SerializableGeomRef struct {
 	OBJPath   string                       `json:"obj_path"`
 	Material  lookdev.SerializableMaterial `json:"material"`
 	Transform nomath.SerializableTransform `json:"transform"`
+	IsVisible bool                         `json:"IsVisible"`
 }
 
 // --- Transform Conversion ---
 
 func FromSerializableTransform(st nomath.SerializableTransform) *nomath.Transform {
-	return &nomath.Transform{
+	t := &nomath.Transform{
 		Position: st.Position,
 		Rotation: st.Rotation,
 		Scale:    st.Scale,
 	}
+	t.Dirty = true
+	t.UpdateModelMatrix() // Ensure matrix is calculated immediately
+	t.Dirty = false
+	return t
 }
 
 // --- OBJ Export Helper ---
-
 func exportGeometryAsOBJ(geom *Geometry, folder string) (string, error) {
 	filename := fmt.Sprintf("%s.obj", geom.Name)
 	objPath := filepath.Join(folder, filename)
@@ -69,40 +74,26 @@ func exportGeometryAsOBJ(geom *Geometry, folder string) (string, error) {
 		sb.WriteString(fmt.Sprintf("vt %f %f\n", uv.U, uv.V))
 	}
 
-	// Write faces
+	// Write faces with explicit vertex/uv/normal indices
 	for _, tri := range geom.Triangles {
-		vIdx := func(v *nomath.Vec3) int {
-			for i, vv := range geom.Vertices {
-				if vv == v {
-					return i + 1
-				}
-			}
-			return -1
-		}
+		// Get indices for each component
+		v0Idx := indexOfVec3(geom.Vertices, tri.V0) + 1
+		v1Idx := indexOfVec3(geom.Vertices, tri.V1) + 1
+		v2Idx := indexOfVec3(geom.Vertices, tri.V2) + 1
 
-		uvIdx := func(uv *nomath.Vec2) int {
-			for i, u := range geom.UVs {
-				if u == uv {
-					return i + 1
-				}
-			}
-			return 0
-		}
+		uv0Idx := indexOfVec2(geom.UVs, tri.UV0) + 1
+		uv1Idx := indexOfVec2(geom.UVs, tri.UV1) + 1
+		uv2Idx := indexOfVec2(geom.UVs, tri.UV2) + 1
 
-		nIdx := func(n *nomath.Vec3) int {
-			for i, nn := range geom.Normals {
-				if nn == n {
-					return i + 1
-				}
-			}
-			return 0
-		}
+		n0Idx := indexOfVec3(geom.Normals, tri.N0) + 1
+		n1Idx := indexOfVec3(geom.Normals, tri.N1) + 1
+		n2Idx := indexOfVec3(geom.Normals, tri.N2) + 1
 
-		a := fmt.Sprintf("%d/%d/%d", vIdx(tri.V0), uvIdx(tri.UV0), nIdx(tri.N0))
-		b := fmt.Sprintf("%d/%d/%d", vIdx(tri.V1), uvIdx(tri.UV1), nIdx(tri.N1))
-		c := fmt.Sprintf("%d/%d/%d", vIdx(tri.V2), uvIdx(tri.UV2), nIdx(tri.N2))
-
-		sb.WriteString(fmt.Sprintf("f %s %s %s\n", a, b, c))
+		// Write face with all indices
+		sb.WriteString(fmt.Sprintf("f %d/%d/%d %d/%d/%d %d/%d/%d\n",
+			v0Idx, uv0Idx, n0Idx,
+			v1Idx, uv1Idx, n1Idx,
+			v2Idx, uv2Idx, n2Idx))
 	}
 
 	_, err = f.WriteString(sb.String())
@@ -111,6 +102,25 @@ func exportGeometryAsOBJ(geom *Geometry, folder string) (string, error) {
 	}
 
 	return filename, nil
+}
+
+// Helper functions to find indices
+func indexOfVec3(slice []*nomath.Vec3, item *nomath.Vec3) int {
+	for i, v := range slice {
+		if v == item {
+			return i
+		}
+	}
+	return -1
+}
+
+func indexOfVec2(slice []*nomath.Vec2, item *nomath.Vec2) int {
+	for i, v := range slice {
+		if v == item {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- Save Assembly with External Geometry References ---
@@ -150,6 +160,7 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 				Reflectivity:  geom.Material.Reflectivity,
 			},
 			Transform: geom.Transform.ToSerializable(),
+			IsVisible: geom.IsVisible,
 		}
 
 		if geom.Material.DiffuseTexture != nil {
@@ -199,18 +210,17 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 }
 
 // --- Load Assembly from JSON and External OBJ Files ---
-
 func (a *Assembly) LoadAssembly(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Println("Failed to read assembly JSON:", err)
+		log.Fatalf("Failed to read : %v : %v\n", path, err)
 		return
 	}
 
 	var saved SerializableAssembly
 	err = json.Unmarshal(data, &saved)
 	if err != nil {
-		fmt.Println("Failed to parse JSON:", err)
+		log.Fatalf("Failed to parse json : %v : %v\n", path, err)
 		return
 	}
 
@@ -218,7 +228,13 @@ func (a *Assembly) LoadAssembly(path string) {
 	a.ID = saved.ID
 	a.isDynamic = saved.IsDynamic
 	a.IsVisible = saved.IsVisible
+
+	// Fix: Ensure transform is properly initialized
 	a.Transform = FromSerializableTransform(saved.Transform)
+	if a.Transform == nil {
+		a.Transform = nomath.NewTransform()
+	}
+	a.Transform.UpdateModelMatrix()
 
 	assemblyDir := filepath.Dir(path)
 
@@ -227,7 +243,7 @@ func (a *Assembly) LoadAssembly(path string) {
 
 		geom, err := LoadOBJ(objPath)
 		if err != nil {
-			fmt.Println("Failed to load .obj geometry:", err)
+			log.Fatalf("ERROR : Failed to load .obj : %v : %v\n", path, err)
 			continue
 		}
 
@@ -241,34 +257,48 @@ func (a *Assembly) LoadAssembly(path string) {
 			Transparency:  sGeom.Material.Transparency,
 			Reflectivity:  sGeom.Material.Reflectivity,
 		}
+
+		// Fix: Ensure geometry transform is properly initialized
 		geom.Transform = FromSerializableTransform(sGeom.Transform)
+		if geom.Transform == nil {
+			geom.Transform = nomath.NewTransform()
+		}
 		geom.Transform.UpdateModelMatrix()
 
 		if sGeom.Material.DiffuseTexture != "" {
 			tex, err := lookdev.LoadTexture(filepath.Join(assemblyDir, sGeom.Material.DiffuseTexture))
 			if err == nil {
 				geom.Material.DiffuseTexture = tex
+			} else {
+				log.Fatalf("Failed to load texture : %v", filepath.Join(assemblyDir, sGeom.Material.DiffuseTexture))
 			}
 		}
 		if sGeom.Material.SpecularTexture != "" {
 			tex, err := lookdev.LoadTexture(filepath.Join(assemblyDir, sGeom.Material.SpecularTexture))
 			if err == nil {
 				geom.Material.SpecularTexture = tex
+			} else {
+				log.Fatalf("Failed to load texture : %v", filepath.Join(assemblyDir, sGeom.Material.SpecularTexture))
 			}
 		}
 		if sGeom.Material.NormalTexture != "" {
 			tex, err := lookdev.LoadTexture(filepath.Join(assemblyDir, sGeom.Material.NormalTexture))
 			if err == nil {
 				geom.Material.NormalTexture = tex
+			} else {
+				log.Fatalf("Failed to load texture : %v", filepath.Join(assemblyDir, sGeom.Material.NormalTexture))
 			}
 		}
 		if sGeom.Material.TransparencyTexture != "" {
 			tex, err := lookdev.LoadTexture(filepath.Join(assemblyDir, sGeom.Material.TransparencyTexture))
 			if err == nil {
 				geom.Material.TransparencyTexture = tex
+			} else {
+				log.Fatalf("Failed to load texture : %v", filepath.Join(assemblyDir, sGeom.Material.TransparencyTexture))
 			}
 		}
-
+		geom.ComputeBoundingBox()
 		a.AddGeometry(geom)
 	}
+	a.ComputeBoundingBox()
 }
