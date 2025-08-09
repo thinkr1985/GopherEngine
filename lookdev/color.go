@@ -6,6 +6,12 @@ import (
 	"math"
 )
 
+type ColorRGB struct {
+	R uint8 // Red (0-255)
+	G uint8 // Green (0-255)
+	B uint8 // Blue (0-255)
+}
+
 // ColorRGBA represents a color with 8-bit channels (0-255) and alpha (0-1)
 type ColorRGBA struct {
 	R uint8   // Red (0-255)
@@ -35,12 +41,11 @@ func NewWarningColorRGBA() *ColorRGBA {
 }
 
 // NewColorRGB creates a color with specified RGB values (alpha = 1.0)
-func NewColorRGB(r, g, b uint8) *ColorRGBA {
-	return &ColorRGBA{
+func NewColorRGB(r, g, b uint8) *ColorRGB {
+	return &ColorRGB{
 		R: r,
 		G: g,
 		B: b,
-		A: 1.0,
 	}
 }
 
@@ -133,6 +138,18 @@ func (c *ColorRGBA) Add(other *ColorRGBA) *ColorRGBA {
 		G: uint8(math.Min(float64(c.G)+float64(other.G), 255)),
 		B: uint8(math.Min(float64(c.B)+float64(other.B), 255)),
 		A: math.Min(c.A+other.A, 1.0),
+	}
+}
+
+func BlendColors(bg, fg ColorRGBA) ColorRGBA {
+	alpha := fg.A
+	invAlpha := 1.0 - alpha
+
+	return ColorRGBA{
+		R: uint8(float64(fg.R)*alpha + float64(bg.R)*invAlpha),
+		G: uint8(float64(fg.G)*alpha + float64(bg.G)*invAlpha),
+		B: uint8(float64(fg.B)*alpha + float64(bg.B)*invAlpha),
+		A: bg.A*invAlpha + fg.A, // Blend alpha channels
 	}
 }
 

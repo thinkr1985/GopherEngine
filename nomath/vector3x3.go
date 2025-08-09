@@ -115,3 +115,10 @@ func Max(a, b Vec3) Vec3 {
 		Z: math.Max(a.Z, b.Z),
 	}
 }
+
+func (v Vec3) DistanceTo(other Vec3) float64 {
+	dx := v.X - other.X
+	dy := v.Y - other.Y
+	dz := v.Z - other.Z
+	return math.Sqrt(dx*dx + dy*dy + dz*dz)
+}

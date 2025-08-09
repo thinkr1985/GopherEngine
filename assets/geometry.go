@@ -3,10 +3,12 @@ package assets
 import (
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"GopherEngine/utilities"
 )
 
 type Geometry struct {
 	Name        string
+	ID          string
 	Transform   *nomath.Transform
 	Vertices    []*nomath.Vec3
 	Normals     []*nomath.Vec3
@@ -19,6 +21,7 @@ type Geometry struct {
 func (g *Geometry) NewGeometry() *Geometry {
 	geo := &Geometry{
 		Name:        "Object001",
+		ID:          utilities.GenerateUniqueID(),
 		Transform:   nomath.NewTransform(),
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial("DefaultMaterial"),
@@ -94,40 +97,7 @@ func (g *Geometry) PrecomputeTextureBuffers() {
 		if tri.BufferCache {
 			continue
 		}
-		// Initialize buffers
-		tri.DiffuseBuffer = lookdev.NewWarningColorRGBA()
-		tri.SpecularBuffer = lookdev.NewWarningColorRGBA()
-		tri.AlphaBuffer = 1.0 // Default to fully opaque
-		// Compute barycentric center for sampling
-		u, v, w := 1.0/3.0, 1.0/3.0, 1.0/3.0
-		uv := tri.InterpolatedUV(u, v, w)
+		tri.PreComputeBuffers()
 
-		// Handle diffuse texture with alpha
-		if tri.Material.DiffuseTexture != nil {
-			diffuseSample := tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
-			*tri.DiffuseBuffer = diffuseSample
-			tri.AlphaBuffer = diffuseSample.A // Store alpha from texture
-
-			// If material has alpha, combine it with texture alpha
-			if tri.Material.DiffuseColor.A < 1.0 {
-				tri.AlphaBuffer *= tri.Material.DiffuseColor.A
-			}
-		} else {
-			*tri.DiffuseBuffer = tri.Material.DiffuseColor
-			tri.AlphaBuffer = tri.Material.DiffuseColor.A
-		}
-
-		// Handle specular texture
-		if tri.Material.SpecularTexture != nil {
-			*tri.SpecularBuffer = tri.Material.SpecularTexture.Sample(uv.U, uv.V)
-		} else {
-			*tri.SpecularBuffer = tri.Material.SpecularColor
-		}
-
-		// Apply transparency to diffuse color
-		if tri.AlphaBuffer < 1.0 {
-			tri.DiffuseBuffer.A = tri.AlphaBuffer
-		}
-		tri.BufferCache = true
 	}
 }

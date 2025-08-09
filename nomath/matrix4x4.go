@@ -149,6 +149,30 @@ func (m Mat4) ToEulerAnglesYXZ() Vec3 {
 }
 
 // Multiply optimized version (unrolled loops where possible)
+// func (m Mat4) Multiply(other Mat4) Mat4 {
+// 	return Mat4{
+// 		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
+// 		m[1]*other[0] + m[5]*other[1] + m[9]*other[2] + m[13]*other[3],
+// 		m[2]*other[0] + m[6]*other[1] + m[10]*other[2] + m[14]*other[3],
+// 		m[3]*other[0] + m[7]*other[1] + m[11]*other[2] + m[15]*other[3],
+
+// 		m[0]*other[4] + m[4]*other[5] + m[8]*other[6] + m[12]*other[7],
+// 		m[1]*other[4] + m[5]*other[5] + m[9]*other[6] + m[13]*other[7],
+// 		m[2]*other[4] + m[6]*other[5] + m[10]*other[6] + m[14]*other[7],
+// 		m[3]*other[4] + m[7]*other[5] + m[11]*other[6] + m[15]*other[7],
+
+// 		m[0]*other[8] + m[4]*other[9] + m[8]*other[10] + m[12]*other[11],
+// 		m[1]*other[8] + m[5]*other[9] + m[9]*other[10] + m[13]*other[11],
+// 		m[2]*other[8] + m[6]*other[9] + m[10]*other[10] + m[14]*other[11],
+// 		m[3]*other[8] + m[7]*other[9] + m[11]*other[10] + m[15]*other[11],
+
+// 		m[0]*other[12] + m[4]*other[13] + m[8]*other[14] + m[12]*other[15],
+// 		m[1]*other[12] + m[5]*other[13] + m[9]*other[14] + m[13]*other[15],
+// 		m[2]*other[12] + m[6]*other[13] + m[10]*other[14] + m[14]*other[15],
+// 		m[3]*other[12] + m[7]*other[13] + m[11]*other[14] + m[15]*other[15],
+// 	}
+// }
+
 func (m Mat4) Multiply(other Mat4) Mat4 {
 	return Mat4{
 		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
@@ -183,7 +207,6 @@ func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 	}
 }
 
-// TransformVec3 transforms a Vec3 using the 3x3 portion of the matrix (ignoring translation).
 func (m Mat4) TransformVec3(v Vec3) Vec3 {
 	return Vec3{
 		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
@@ -204,4 +227,13 @@ func (m Mat4) MultiplyVec4Batch(vectors []Vec4) []Vec4 {
 		}
 	}
 	return results
+}
+
+func Ortho(left, right, bottom, top, near, far float64) Mat4 {
+	return Mat4{
+		2 / (right - left), 0, 0, 0,
+		0, 2 / (top - bottom), 0, 0,
+		0, 0, -2 / (far - near), 0,
+		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
+	}
 }

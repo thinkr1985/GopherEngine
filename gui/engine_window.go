@@ -38,7 +38,7 @@ func Window(scene *core.Scene) {
 	scene.ResolutionScale = 1.0
 	scene.AutoResolution = false
 	scene.LastFPS = 60
-	scene.MinResolutionScale = 0.1
+	scene.MinResolutionScale = 0.5
 	scene.LastScaleChange = rl.GetTime()
 	scene.FPSHistory = make([]int, 0, 10)
 
@@ -62,6 +62,7 @@ func Window(scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.PixelFormat(7),
 	})
+	rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -88,10 +89,8 @@ func Window(scene *core.Scene) {
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
 
-		// Render 3D scene
-		scene.ViewAxes.Draw(scene.Renderer, scene.Camera)
-		scene.Grid.Draw(scene.Renderer, scene.Camera)
-		scene.RenderScene()
+		// Render 3D
+		scene.RenderOnThread()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -109,6 +108,7 @@ func Window(scene *core.Scene) {
 				Mipmaps: 1,
 				Format:  rl.PixelFormat(7),
 			})
+			rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 		} else {
 			// Update existing texture
 			rl.UpdateTexture(fullResTex, rgbaSlice)
@@ -116,7 +116,7 @@ func Window(scene *core.Scene) {
 
 		// Draw everything
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.Black)
+		rl.ClearBackground(rl.DarkGray)
 
 		rl.DrawTexturePro(
 			fullResTex,
@@ -148,7 +148,7 @@ func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float
 		(1.0-scene.MinResolutionScale)*fpsRatio*fpsRatio
 
 	// Only update target if significantly different
-	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.05 {
+	if math.Abs(newTarget-scene.TargetResolutionScale) > 0.1 {
 		scene.TargetResolutionScale = newTarget
 		scene.LastScaleChange = currentTime
 	}
@@ -190,7 +190,7 @@ func draw_debug_stats(scene *core.Scene) {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
 	}
 
-	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v",
+	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v\nCPU : %v\nGPU : %v",
 		core.GetMachineStats(),
 		rl.GetFPS(),
 		avgFPS,
@@ -198,16 +198,18 @@ func draw_debug_stats(scene *core.Scene) {
 		scene.TargetResolutionScale*100,
 		scene.AutoResolution,
 		scene.DrawnTriangles,
-		len(scene.Triangles))
+		len(scene.Triangles),
+		scene.Renderer.CPU,
+		scene.Renderer.GPU)
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+80, 150, rl.NewColor(0, 0, 0, 60))
+	rl.DrawRectangle(10, 10, textWidth+100, 180, rl.NewColor(0, 0, 0, 30))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 
 	// Show scaling info if in auto mode
 	if scene.AutoResolution {
 		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
-		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 140), 12, 2, rl.LightGray)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 170), 12, 2, rl.LightGray)
 	}
 }
 
@@ -216,26 +218,6 @@ func drawKeyboardOverlay(tex rl.Texture2D) {
 	y := rl.GetScreenHeight() - int(tex.Height) - 20
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)
 }
-
-/*
-func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
-	w := img.Bounds().Dx()
-	h := img.Bounds().Dy()
-	src := img.Pix
-	pixels := make([]color.RGBA, w*h)
-
-	for i := 0; i < len(pixels); i++ {
-		pixels[i] = color.RGBA{
-			R: src[i*4],
-			G: src[i*4+1],
-			B: src[i*4+2],
-			A: src[i*4+3],
-		}
-	}
-
-	return pixels
-}
-*/
 
 func convertToColorRGBASlice(img *image.RGBA) []color.RGBA {
 	w := img.Bounds().Dx()
