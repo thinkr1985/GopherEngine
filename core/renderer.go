@@ -44,7 +44,7 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled: false,
+		FogEnabled: true,
 		FogColor:   lookdev.ColorRGBA{R: 180, G: 180, B: 190, A: 1.0},
 		FogDensity: 0.05,
 		FogStart:   5.0,

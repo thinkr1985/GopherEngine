@@ -5,6 +5,7 @@ import (
 	"GopherEngine/core"
 	"GopherEngine/gui"
 	"GopherEngine/lookdev"
+	"math"
 
 	// "GopherEngine/nomath"
 	"log"
@@ -15,6 +16,19 @@ func main() {
 	// core.StartCPUProfile()
 	scene := core.NewScene()
 	assemby := assets.NewAssembly()
+
+	plane, err := assets.LoadOBJ("objs/ground_plane_small.obj")
+	if err != nil {
+		log.Fatalf("Failed to load OBJ file: %v", err)
+	}
+	ground_tex, err := lookdev.LoadTexture("textures/ground_grid.jpg")
+	if err != nil {
+		log.Printf("Warning: Failed to load texture: %v", err)
+	} else {
+		plane.Material.DiffuseTexture = ground_tex
+	}
+	scene.AddObject(plane)
+
 	obj, err := assets.LoadOBJ("objs/tree_foliage.obj")
 	if err != nil {
 		log.Fatalf("Failed to load OBJ file: %v", err)
@@ -47,8 +61,10 @@ func main() {
 	obj2.Name = "tree_bark"
 	assemby.AddGeometry(obj)
 	assemby.AddGeometry(obj2)
+	scene.AddObject(obj)
+	scene.AddObject(obj2)
 
-	assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/tree.asset")
+	// assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/tree.asset")
 	// assemby.SaveAssembly("StandardTree", "E:/GitHub/GopherEngine/tests")
 	// assembly := assets.NewAssembly()
 	// assembly.LoadAssembly("E:/GitHub/GopherEngine/tests")
@@ -93,7 +109,8 @@ func main() {
 		}
 		scene.AddObject(ground_plane)
 	*/
-
+	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
+	scene.DefaultLight.Transform.Dirty = true
 	gui.Window(scene)
 	// core.StopCPUProfile()
 }

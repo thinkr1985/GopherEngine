@@ -81,8 +81,8 @@ func NewScene() *Scene {
 
 func (s *Scene) UpdateScene() {
 
-	s.DefaultLight.Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
-	s.DefaultLight.Transform.Dirty = true
+	// s.DefaultLight.Transform.Rotation.X += 0.5 + math.Sin(10)*1.0
+	// s.DefaultLight.Transform.Dirty = true
 	s.Renderer.PreComputeLightDirs(s)
 	// Update camera first
 	s.Camera.Update()
