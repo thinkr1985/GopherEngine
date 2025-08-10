@@ -13,94 +13,36 @@ import (
 func main() {
 	// core.StartCPUProfile()
 	scene := core.NewScene()
-	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/hammer.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+
 	/*
 		assemby := assets.NewAssembly()
-		assemby.Name = "plane"
+		assemby.Name = "PoliceCar"
 
-		plane, err := assets.LoadOBJ("objs/ground_plane_small.obj")
+		plane, err := assets.LoadOBJ("objs/carB.obj")
 		if err != nil {
 			log.Fatalf("Failed to load OBJ file: %v", err)
 		}
-		plane.Name = "Plane"
-		ground_tex, err := lookdev.LoadTexture("textures/UV_checker.png")
+		plane.Name = "PoliceCarMesh"
+		ground_tex, err := lookdev.LoadTexture("textures/CarBTexture.png")
 		if err != nil {
 			log.Printf("Warning: Failed to load texture: %v", err)
 		} else {
 			plane.Material.DiffuseTexture = ground_tex
 		}
-		assemby.AddGeometry(plane)
-
-		obj, err := assets.LoadOBJ("objs/tree_foliage.obj")
-		if err != nil {
-			log.Fatalf("Failed to load OBJ file: %v", err)
-		}
-		tex_foliage, err := lookdev.LoadTexture("textures/DB2X2_L01.png")
+		spec_tex, err := lookdev.LoadTexture("textures/Wood_Tower_Nor.jpg")
 		if err != nil {
 			log.Printf("Warning: Failed to load texture: %v", err)
 		} else {
-			obj.Material.DiffuseTexture = tex_foliage
-		}
-		spec_foliage, err := lookdev.LoadTexture("textures/DB2X2_L01_Spec.png")
-		if err != nil {
-			log.Printf("Warning: Failed to load texture: %v", err)
-		} else {
-			obj.Material.SpecularTexture = spec_foliage
-		}
-
-		obj.Name = "tree_foliage"
-
-		obj2, err := assets.LoadOBJ("objs/tree_bark.obj")
-		if err != nil {
-			log.Fatalf("Failed to load OBJ file: %v", err)
-		}
-		tex_bark, err := lookdev.LoadTexture("textures/bark_0021.jpg")
-		if err != nil {
-			log.Printf("Warning: Failed to load texture: %v", err)
-		} else {
-			obj2.Material.DiffuseTexture = tex_bark
-		}
-		obj2.Name = "tree_bark"
-		assemby.AddGeometry(obj)
-		assemby.AddGeometry(obj2)
-		scene.AddAssembly(assemby)
-		// assemby.SaveAssembly("tree", "tests/")
-		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
-	*/
-	/*
-		assemby := assets.NewAssembly()
-		assemby.Name = "Hammer"
-
-		plane, err := assets.LoadOBJ("objs/hammer.obj")
-		if err != nil {
-			log.Fatalf("Failed to load OBJ file: %v", err)
-		}
-		plane.Name = "ThorHammerMesh"
-		ground_tex, err := lookdev.LoadTexture("textures/thor_color.jpg")
-		if err != nil {
-			log.Printf("Warning: Failed to load texture: %v", err)
-		} else {
-			plane.Material.DiffuseTexture = ground_tex
-		}
-		spec_tex, err := lookdev.LoadTexture("textures/thor color_SPEC.jpg")
-		if err != nil {
-			log.Printf("Warning: Failed to load texture: %v", err)
-		} else {
-			plane.Material.SpecularTexture = spec_tex
-		}
-		norm_tex, err := lookdev.LoadTexture("textures/thor color_NRM.jpg")
-		if err != nil {
-			log.Printf("Warning: Failed to load texture: %v", err)
-		} else {
-			plane.Material.NormalTexture = norm_tex
+			plane.Material.DiffuseTexture = spec_tex
 		}
 
 		assemby.AddGeometry(plane)
 
 		scene.AddAssembly(assemby)
-		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/hammer.asset")
+		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/PoliceCar.asset")
 	*/
 	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
 	scene.DefaultLight.Transform.Dirty = true

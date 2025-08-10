@@ -205,8 +205,8 @@ func (s *Scene) RenderOnThreads() {
 	}
 
 	// Draw overlays
-	s.Grid.Draw(s.Renderer, s.Camera)
-	s.ViewAxes.Draw(s.Renderer, s.Camera)
+	// s.Grid.Draw(s.Renderer, s.Camera)
+	// s.ViewAxes.Draw(s.Renderer, s.Camera)
 	for _, light := range s.Lights {
 		light.DrawLight()
 	}

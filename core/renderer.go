@@ -35,9 +35,6 @@ type Renderer3D struct {
 	GPU      string
 
 	// Pre-allocated buffers to avoid allocations
-	clipVerts   [3]nomath.Vec4
-	screenVerts [3]nomath.Vec3
-	lightDots   []float64
 
 	// Lighting calculation buffers
 	lightingBuffers struct {
@@ -58,11 +55,11 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled: false,
-		FogColor:   lookdev.ColorRGBA{R: 180, G: 180, B: 190, A: 1.0},
+		FogEnabled: true,
+		FogColor:   lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity: 0.05,
 		FogStart:   5.0,
-		FogEnd:     30.0,
+		FogEnd:     500.0,
 	}
 	r.CPU = utilities.GetCPU()
 	r.GPU = utilities.GetGPU()
@@ -696,10 +693,10 @@ func (r *Renderer3D) calculateLighting(
 		attenuation := 1.0 / (1.0 + light.Attenuation*dist*dist)
 
 		// Calculate shadow factor
-		shadowFactor := 0.0
+		shadowFactor := 1.2
 		if light.Shadows && light.Intensity > 0.1 {
 			if r.isInShadow(fragmentPos, light) {
-				shadowFactor = 1.0
+				shadowFactor = 1.2
 			}
 		}
 
@@ -831,11 +828,11 @@ func (r *Renderer3D) applyFog(color lookdev.ColorRGBA, distance float64) lookdev
 		return color
 	}
 
-	r.FogEnabled = true
-	r.FogColor = lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0}
-	r.FogStart = 10.0
-	r.FogEnd = 50
-	r.FogDensity = 0.1
+	// r.FogEnabled = true
+	// r.FogColor = lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0}
+	// r.FogStart = 10.0
+	// r.FogEnd = 50
+	// r.FogDensity = 0.1
 
 	fogFactor := 1.0 - math.Exp(-math.Pow(r.FogDensity*distance, 2))
 	fogFactor = clamp(fogFactor, 0.0, 1.0)

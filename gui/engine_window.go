@@ -25,7 +25,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(60)
+	rl.SetTargetFPS(120)
 
 }
 
