@@ -13,7 +13,8 @@ import (
 func main() {
 	// core.StartCPUProfile()
 	scene := core.NewScene()
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/tree.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
 	// scene.LoadAssembly("E:/GitHub/GopherEngine/tests/tree.ably")
 	/*
 		assemby := assets.NewAssembly()
@@ -24,7 +25,7 @@ func main() {
 			log.Fatalf("Failed to load OBJ file: %v", err)
 		}
 		plane.Name = "Plane"
-		ground_tex, err := lookdev.LoadTexture("textures/ground_grid.jpg")
+		ground_tex, err := lookdev.LoadTexture("textures/UV_checker.png")
 		if err != nil {
 			log.Printf("Warning: Failed to load texture: %v", err)
 		} else {
@@ -66,8 +67,29 @@ func main() {
 		assemby.AddGeometry(obj2)
 		scene.AddAssembly(assemby)
 		// assemby.SaveAssembly("tree", "tests/")
-		// assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/tree.asset")
+		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	*/
+	/*
+		assemby := assets.NewAssembly()
+		assemby.Name = "DefaultSkySphere"
+
+		plane, err := assets.LoadOBJ("objs/skysphere.obj")
+		if err != nil {
+			log.Fatalf("Failed to load OBJ file: %v", err)
+		}
+		plane.Name = "SkySphereMesh"
+		ground_tex, err := lookdev.LoadTexture("textures/skybox/hdri_sky_759.jpg")
+		if err != nil {
+			log.Printf("Warning: Failed to load texture: %v", err)
+		} else {
+			plane.Material.DiffuseTexture = ground_tex
+		}
+		assemby.AddGeometry(plane)
+
+		scene.AddAssembly(assemby)
+		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/skySphere.asset")
+	*/
+
 	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
 	scene.DefaultLight.Transform.Dirty = true
 	gui.Window(scene)

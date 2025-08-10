@@ -176,10 +176,9 @@ func (r *Renderer3D) DrawText2D(text string, x, y int, color *lookdev.ColorRGBA)
 	r.DrawLine2D(x+5, y, x, y+5, color)
 }
 
-// NDCToScreen optimized version with proper return signature
 func (r *Renderer3D) NDCToScreen(ndc nomath.Vec3) (int, int) {
 	x := int((ndc.X + 1) * 0.5 * float64(r.GetWidth()))
-	y := int((1 - (ndc.Y+1)*0.5) * float64(r.GetHeight()))
+	y := int((1 - ndc.Y) * 0.5 * float64(r.GetHeight())) // Remove the extra +1 here
 	return x, y
 }
 
@@ -319,6 +318,12 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
 	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
+
+	// Special case for skybox/skysphere (no lighting, no clipping)
+	if tri.Parent.Name == "SkySphereMesh" {
+
+		return
+	}
 
 	// Store in array for easier indexing
 	clipVerts := [3]nomath.Vec4{v0, v1, v2}
@@ -563,6 +568,9 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 	// Render all triangles from light's perspective
 	for _, assembly := range scene.Assemblies {
 		if !assembly.IsVisible {
+			continue
+		}
+		if assembly.Name == "DefaultSkySphere" {
 			continue
 		}
 		for _, geom := range assembly.Geometries {

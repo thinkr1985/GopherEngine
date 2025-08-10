@@ -3,6 +3,7 @@ package core
 import (
 	"GopherEngine/assets"
 	"GopherEngine/nomath"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -107,6 +108,7 @@ func (s *Scene) LoadAsset(asset_path string) {
 	if err != nil {
 		return
 	}
+	fmt.Println(assembly.Name)
 	s.AddAssembly(assembly)
 
 }
@@ -293,63 +295,4 @@ func (s *Scene) min(a, b int) int {
 	}
 	return b
 
-}
-func (s *Scene) renderTriangleToShadowMap(tri *assets.Triangle, mvpMatrix nomath.Mat4, light *Light) {
-	// Transform vertices to clip space
-	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
-	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
-	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
-
-	// Skip triangles that are completely behind the light
-	if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
-		return
-	}
-
-	// Perform perspective divide
-	ndc0 := v0.Divide(v0.W).ToVec3()
-	ndc1 := v1.Divide(v1.W).ToVec3()
-	ndc2 := v2.Divide(v2.W).ToVec3()
-
-	// Convert to shadow map coordinates [0,1] range
-	v0Screen := nomath.Vec2{
-		U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-		V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
-	}
-	v1Screen := nomath.Vec2{
-		U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-		V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
-	}
-	v2Screen := nomath.Vec2{
-		U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-		V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
-	}
-
-	// Convert depth from [-1,1] to [0,1] range
-	depth0 := (ndc0.Z + 1) * 0.5
-	depth1 := (ndc1.Z + 1) * 0.5
-	depth2 := (ndc2.Z + 1) * 0.5
-
-	// Find bounding box in shadow map
-	minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
-	maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
-	minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
-	maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
-
-	// Rasterize triangle to shadow map
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			p := nomath.Vec2{U: float64(x), V: float64(y)}
-			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
-
-			if u >= 0 && v >= 0 && w >= 0 {
-				// Interpolate depth
-				depth := u*depth0 + v*depth1 + w*depth2
-
-				// Update shadow map depth if this is closer
-				if depth < light.ShadowMap.Depth[y][x] {
-					light.ShadowMap.Depth[y][x] = depth
-				}
-			}
-		}
-	}
 }
