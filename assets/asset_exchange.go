@@ -80,12 +80,13 @@ func AssetExport(assembly *Assembly, path string) error {
 			UVs:       geom.UVs,
 			Triangles: packedTris,
 			Material: lookdev.SerializableMaterial{
-				Name:          geom.Material.Name,
-				DiffuseColor:  geom.Material.DiffuseColor,
-				SpecularColor: geom.Material.SpecularColor,
-				Shininess:     geom.Material.Shininess,
-				Transparency:  geom.Material.Transparency,
-				Reflectivity:  geom.Material.Reflectivity,
+				Name:           geom.Material.Name,
+				DiffuseColor:   geom.Material.DiffuseColor,
+				SpecularColor:  geom.Material.SpecularColor,
+				Shininess:      geom.Material.Shininess,
+				Transparency:   geom.Material.Transparency,
+				Reflectivity:   geom.Material.Reflectivity,
+				NormalStrength: geom.Material.NormalStrength,
 			},
 			Transform: geom.Transform.ToSerializable(),
 		}
@@ -242,12 +243,13 @@ func AssetImport(path string) (*Assembly, error) {
 
 		// material
 		mat := &lookdev.Material{
-			Name:          g.Material.Name,
-			DiffuseColor:  g.Material.DiffuseColor,
-			SpecularColor: g.Material.SpecularColor,
-			Shininess:     g.Material.Shininess,
-			Transparency:  g.Material.Transparency,
-			Reflectivity:  g.Material.Reflectivity,
+			Name:           g.Material.Name,
+			DiffuseColor:   g.Material.DiffuseColor,
+			SpecularColor:  g.Material.SpecularColor,
+			Shininess:      g.Material.Shininess,
+			Transparency:   g.Material.Transparency,
+			Reflectivity:   g.Material.Reflectivity,
+			NormalStrength: g.Material.NormalStrength,
 		}
 		// attach textures from embedded blob map
 		if g.Material.DiffuseTexture != "" {

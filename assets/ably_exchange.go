@@ -152,12 +152,13 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 			Name:    geom.Name,
 			OBJPath: objFile,
 			Material: lookdev.SerializableMaterial{
-				Name:          geom.Material.Name,
-				DiffuseColor:  geom.Material.DiffuseColor,
-				SpecularColor: geom.Material.SpecularColor,
-				Shininess:     geom.Material.Shininess,
-				Transparency:  geom.Material.Transparency,
-				Reflectivity:  geom.Material.Reflectivity,
+				Name:           geom.Material.Name,
+				DiffuseColor:   geom.Material.DiffuseColor,
+				SpecularColor:  geom.Material.SpecularColor,
+				Shininess:      geom.Material.Shininess,
+				Transparency:   geom.Material.Transparency,
+				Reflectivity:   geom.Material.Reflectivity,
+				NormalStrength: geom.Material.NormalStrength,
 			},
 			Transform: geom.Transform.ToSerializable(),
 			IsVisible: geom.IsVisible,
@@ -250,12 +251,13 @@ func (a *Assembly) LoadAssembly(path string) {
 		geom.ID = sGeom.ID
 		geom.Name = sGeom.Name
 		geom.Material = &lookdev.Material{
-			Name:          sGeom.Material.Name,
-			DiffuseColor:  sGeom.Material.DiffuseColor,
-			SpecularColor: sGeom.Material.SpecularColor,
-			Shininess:     sGeom.Material.Shininess,
-			Transparency:  sGeom.Material.Transparency,
-			Reflectivity:  sGeom.Material.Reflectivity,
+			Name:           sGeom.Material.Name,
+			DiffuseColor:   sGeom.Material.DiffuseColor,
+			SpecularColor:  sGeom.Material.SpecularColor,
+			Shininess:      sGeom.Material.Shininess,
+			Transparency:   sGeom.Material.Transparency,
+			Reflectivity:   sGeom.Material.Reflectivity,
+			NormalStrength: sGeom.Material.NormalStrength,
 		}
 
 		// Fix: Ensure geometry transform is properly initialized

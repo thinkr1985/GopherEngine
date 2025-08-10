@@ -14,12 +14,11 @@ import (
 )
 
 type Renderer3D struct {
-	Framebuffer          [][]lookdev.ColorRGBA // Changed to value type
-	DepthBuffer          [][]float32           // Changed to float32 for better cache usage
-	BackFaceCulling      bool
-	bufferMutex          sync.Mutex // For thread-safe resizing
-	precomputedLightDirs []nomath.Vec3
-	ambienceFactor       float64
+	Framebuffer     [][]lookdev.ColorRGBA // Changed to value type
+	DepthBuffer     [][]float32           // Changed to float32 for better cache usage
+	BackFaceCulling bool
+	bufferMutex     sync.Mutex // For thread-safe resizing
+	ambienceFactor  float64
 
 	CachedRGBA   []color.RGBA
 	cachedWidth  int
@@ -48,6 +47,7 @@ type Renderer3D struct {
 		lightDir    nomath.Vec3
 		halfVec     nomath.Vec3
 	}
+	precomputedLightDirs []nomath.Vec3
 }
 
 func NewRenderer3D() *Renderer3D {
@@ -300,19 +300,6 @@ func abs(x int) int {
 	return x
 }
 
-func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
-	r.precomputedLightDirs = make([]nomath.Vec3, len(s.Lights))
-	for i, light := range s.Lights {
-		// if light.Transform.Dirty {
-		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
-			r.precomputedLightDirs[i] = light.Transform.Position.Normalize().Negate()
-		} else {
-			r.precomputedLightDirs[i] = light.Transform.Position
-		}
-		// }
-	}
-}
-
 func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
 	nearPlane := camera.NearPlane
 	// Transform vertices to clip space
@@ -445,7 +432,7 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 
 					} else {
 						// Calculate lighting
-						finalColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+						finalColor := r.calculateLighting(modelMatrix, tri, camera.Transform.GetForward(), lights, u, v, w)
 
 						// Apply fog
 						new_color := r.applyFog(*finalColor, distance)
@@ -467,14 +454,6 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 	}
 }
 
-// Helper functions
-func min3(a, b, c int) int {
-	return min(a, min(b, c))
-}
-
-func max3(a, b, c int) int {
-	return max(a, max(b, c))
-}
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	// fmt.Printf("Pixel(%d,%d) = %v\n", x, y, color)
 	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
@@ -649,6 +628,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 }
 
 func (r *Renderer3D) calculateLighting(
+	modelMatrix *nomath.Mat4,
 	tri *assets.Triangle,
 	viewDir nomath.Vec3,
 	lights []*Light,
@@ -668,43 +648,52 @@ func (r *Renderer3D) calculateLighting(
 		return &lookdev.ColorRGBA{R: 0, G: 0, B: 0, A: 0}
 	}
 
-	// Calculate world position and normal
+	// Calculate world position
 	localPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
-	modelMatrix := tri.Parent.Transform.GetMatrix()
 	fragmentPos := modelMatrix.MultiplyVec4(localPos.ToVec4(1.0)).ToVec3()
+
+	// Get interpolated normal
 	worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
 		tri.InterpolatedNormal(u, v, w),
 	).Normalize()
-	viewDir = viewDir.Normalize()
+
+	// Apply normal mapping if available
+	if tri.Material.NormalTexture != nil && tri.UV0 != nil && tri.UV1 != nil && tri.UV2 != nil {
+		uv := tri.InterpolatedUV(u, v, w)
+		normalMapValue := tri.Material.NormalTexture.Sample(uv.U, uv.V)
+
+		// Convert normal from [0,1] to [-1,1] range
+		tangentNormal := nomath.Vec3{
+			X: (float64(normalMapValue.R) / 127.5) - 1.0,
+			Y: (float64(normalMapValue.G) / 127.5) - 1.0,
+			Z: (float64(normalMapValue.B) / 127.5) - 1.0,
+		}.Normalize()
+
+		// Scale by normal strength
+		NormalStrength := 1.0
+		tangentNormal = tangentNormal.Multiply(NormalStrength)
+
+		// Calculate tangent space basis
+		tangent, bitangent := r.calculateTangentBasis(tri, modelMatrix)
+
+		// Transform normal from tangent space to world space
+		tbn := nomath.Mat3FromVectors(tangent, bitangent, worldNormal)
+		worldNormal = tbn.MultiplyVec3(tangentNormal).Normalize()
+	}
 
 	// Initialize lighting accumulators
 	diffuseR, diffuseG, diffuseB := 0.0, 0.0, 0.0
 	specularR, specularG, specularB := 0.0, 0.0, 0.0
 
 	// Process each light
-	for _, light := range lights {
+	for light_index, light := range lights {
 		if light.Intensity <= 0.001 {
 			continue
 		}
 
-		// Calculate light direction and distance
-		var lightDir nomath.Vec3
-		var attenuation float64 = 1.0
-		var dist float64 = 0.0
-
-		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
-			lightDir = light.GetDirection().Normalize()
-		} else {
-			lightDir = light.Transform.Position.Subtract(fragmentPos)
-			dist = lightDir.Length()
-			lightDir = lightDir.Normalize()
-
-			// Skip light if too far away
-			if light.Type == LightTypePoint && dist > 50.0 {
-				continue
-			}
-			attenuation = 1.0 / (1.0 + light.Attenuation*dist*dist)
-		}
+		lightDir := r.precomputedLightDirs[light_index]
+		dist := lightDir.Length()
+		attenuation := 1.0 / (1.0 + light.Attenuation*dist*dist)
 
 		// Calculate shadow factor
 		shadowFactor := 0.0
@@ -741,14 +730,12 @@ func (r *Renderer3D) calculateLighting(
 	gFinal := clampColor(float64(baseColor.G) + diffuseG + specularG)
 	bFinal := clampColor(float64(baseColor.B) + diffuseB + specularB)
 
-	litColor := &lookdev.ColorRGBA{
+	return &lookdev.ColorRGBA{
 		R: rFinal,
 		G: gFinal,
 		B: bFinal,
 		A: baseColor.A,
 	}
-	return litColor
-
 }
 
 func (r *Renderer3D) DrawTriangle3D(p1, p2, p3 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
@@ -870,4 +857,71 @@ func clamp(value, min, max float64) float64 {
 		return max
 	}
 	return value
+}
+
+func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
+	if len(r.precomputedLightDirs) != len(s.Lights) {
+		r.precomputedLightDirs = make([]nomath.Vec3, len(s.Lights))
+	}
+
+	for i, light := range s.Lights {
+		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
+			r.precomputedLightDirs[i] = light.Transform.Position.Normalize().Negate()
+		} else {
+			r.precomputedLightDirs[i] = light.Transform.Position
+		}
+	}
+}
+
+// Helper functions
+func min3(a, b, c int) int {
+	return min(a, min(b, c))
+}
+
+func max3(a, b, c int) int {
+	return max(a, max(b, c))
+}
+
+func (r *Renderer3D) calculateTangentBasis(tri *assets.Triangle, modelMatrix *nomath.Mat4) (nomath.Vec3, nomath.Vec3) {
+	// Return default tangent/bitangent if UV coordinates are missing
+	if tri.UV0 == nil || tri.UV1 == nil || tri.UV2 == nil {
+		// Return arbitrary tangent/bitangent that's perpendicular to the normal
+		normal := modelMatrix.MultiplyVec3(tri.Normal()).Normalize()
+		tangent := nomath.Vec3{X: 1, Y: 0, Z: 0}
+		if math.Abs(normal.Dot(tangent)) > 0.9 {
+			tangent = nomath.Vec3{X: 0, Y: 1, Z: 0}
+		}
+		bitangent := normal.Cross(tangent).Normalize()
+		tangent = bitangent.Cross(normal).Normalize()
+		return tangent, bitangent
+	}
+
+	// Get triangle edges
+	edge1 := tri.V1.Subtract(*tri.V0)
+	edge2 := tri.V2.Subtract(*tri.V0)
+
+	// Get UV differences
+	uv1 := tri.UV1.Subtract(*tri.UV0)
+	uv2 := tri.UV2.Subtract(*tri.UV0)
+
+	// Calculate tangent and bitangent
+	f := 1.0 / (uv1.U*uv2.V - uv2.U*uv1.V)
+
+	tangent := nomath.Vec3{
+		X: f * (uv2.V*edge1.X - uv1.V*edge2.X),
+		Y: f * (uv2.V*edge1.Y - uv1.V*edge2.Y),
+		Z: f * (uv2.V*edge1.Z - uv1.V*edge2.Z),
+	}.Normalize()
+
+	bitangent := nomath.Vec3{
+		X: f * (-uv2.U*edge1.X + uv1.U*edge2.X),
+		Y: f * (-uv2.U*edge1.Y + uv1.U*edge2.Y),
+		Z: f * (-uv2.U*edge1.Z + uv1.U*edge2.Z),
+	}.Normalize()
+
+	// Transform to world space
+	tangent = modelMatrix.MultiplyVec3(tangent).Normalize()
+	bitangent = modelMatrix.MultiplyVec3(bitangent).Normalize()
+
+	return tangent, bitangent
 }

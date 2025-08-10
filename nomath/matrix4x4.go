@@ -212,3 +212,21 @@ func Ortho(left, right, bottom, top, near, far float64) Mat4 {
 		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
 	}
 }
+
+// MultiplyVec3 multiplies a 4x4 matrix with a 3D vector (treats it as vec4 with w=0)
+func (m *Mat4) MultiplyVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z,
+	}
+}
+
+// MultiplyVec3WithW multiplies a 4x4 matrix with a 3D vector (with specified w component)
+func (m *Mat4) MultiplyVec3WithW(v Vec3, w float64) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z + m[12]*w,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z + m[13]*w,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z + m[14]*w,
+	}
+}

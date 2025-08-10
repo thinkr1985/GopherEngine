@@ -11,16 +11,18 @@ type Material struct {
 	SpecularTexture     *Texture
 	NormalTexture       *Texture
 	TransparencyTexture *Texture
+	NormalStrength      float64
 }
 
 func NewMaterial(name string) *Material {
 	return &Material{
-		Name:          name,
-		DiffuseColor:  ColorRGBA{R: 166, G: 166, B: 166, A: 1.0},
-		SpecularColor: ColorRGBA{R: 0, G: 0, B: 0, A: 1},
-		Transparency:  1.0,
-		Shininess:     50.0,
-		Reflectivity:  0.0,
+		Name:           name,
+		DiffuseColor:   ColorRGBA{R: 166, G: 166, B: 166, A: 1.0},
+		SpecularColor:  ColorRGBA{R: 0, G: 0, B: 0, A: 1},
+		Transparency:   1.0,
+		Shininess:      50.0,
+		Reflectivity:   0.0,
+		NormalStrength: 1.0,
 	}
 }
 
@@ -35,4 +37,5 @@ type SerializableMaterial struct {
 	SpecularTexture     string    `json:"specular_texture,omitempty"`
 	NormalTexture       string    `json:"normal_texture,omitempty"`
 	TransparencyTexture string    `json:"transparency_texture,omitempty"`
+	NormalStrength      float64   `json:"normalstrength"`
 }

@@ -136,6 +136,7 @@ func (s *Scene) RenderScene() {
 	s.cachedViewMatrix = s.Camera.GetViewMatrix()
 	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
 	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
+
 	s.matrixMutex.Unlock()
 
 	// Render shadow maps first
@@ -188,7 +189,6 @@ func (s *Scene) RenderOnThreads() {
 	// First update all scene elements and matrices
 	s.UpdateScene()
 	atomic.StoreInt32(&s.DrawnTriangles, 0)
-	s.Renderer.PreComputeLightDirs(s)
 
 	// Update and cache matrices with write lock
 	s.matrixMutex.Lock()
@@ -287,12 +287,4 @@ func (s *Scene) RenderOnThreads() {
 
 	close(workChan)
 	wg.Wait()
-}
-
-func (s *Scene) min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-
 }

@@ -141,3 +141,11 @@ func (v Vec3) DivideVec(o Vec3) Vec3 {
 		Z: v.Z / o.Z,
 	}
 }
+
+func Mat3FromVectors(tangent, bitangent, normal Vec3) Mat3 {
+	return Mat3{
+		tangent.X, tangent.Y, tangent.Z,
+		bitangent.X, bitangent.Y, bitangent.Z,
+		normal.X, normal.Y, normal.Z,
+	}
+}

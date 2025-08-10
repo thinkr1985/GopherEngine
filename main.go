@@ -13,9 +13,9 @@ import (
 func main() {
 	// core.StartCPUProfile()
 	scene := core.NewScene()
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	// scene.LoadAssembly("E:/GitHub/GopherEngine/tests/tree.ably")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/hammer.asset")
 	/*
 		assemby := assets.NewAssembly()
 		assemby.Name = "plane"
@@ -71,25 +71,37 @@ func main() {
 	*/
 	/*
 		assemby := assets.NewAssembly()
-		assemby.Name = "DefaultSkySphere"
+		assemby.Name = "Hammer"
 
-		plane, err := assets.LoadOBJ("objs/skysphere.obj")
+		plane, err := assets.LoadOBJ("objs/hammer.obj")
 		if err != nil {
 			log.Fatalf("Failed to load OBJ file: %v", err)
 		}
-		plane.Name = "SkySphereMesh"
-		ground_tex, err := lookdev.LoadTexture("textures/skybox/hdri_sky_759.jpg")
+		plane.Name = "ThorHammerMesh"
+		ground_tex, err := lookdev.LoadTexture("textures/thor_color.jpg")
 		if err != nil {
 			log.Printf("Warning: Failed to load texture: %v", err)
 		} else {
 			plane.Material.DiffuseTexture = ground_tex
 		}
+		spec_tex, err := lookdev.LoadTexture("textures/thor color_SPEC.jpg")
+		if err != nil {
+			log.Printf("Warning: Failed to load texture: %v", err)
+		} else {
+			plane.Material.SpecularTexture = spec_tex
+		}
+		norm_tex, err := lookdev.LoadTexture("textures/thor color_NRM.jpg")
+		if err != nil {
+			log.Printf("Warning: Failed to load texture: %v", err)
+		} else {
+			plane.Material.NormalTexture = norm_tex
+		}
+
 		assemby.AddGeometry(plane)
 
 		scene.AddAssembly(assemby)
-		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/skySphere.asset")
+		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/hammer.asset")
 	*/
-
 	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
 	scene.DefaultLight.Transform.Dirty = true
 	gui.Window(scene)
