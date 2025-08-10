@@ -15,7 +15,8 @@ func main() {
 	scene := core.NewScene()
 	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/ManySpheres.asset")
 
 	/*
 		assemby := assets.NewAssembly()
@@ -44,7 +45,7 @@ func main() {
 		scene.AddAssembly(assemby)
 		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/PoliceCar.asset")
 	*/
-	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
+	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(10)*1.0
 	scene.DefaultLight.Transform.Dirty = true
 	gui.Window(scene)
 	// core.StopCPUProfile()

@@ -9,4 +9,6 @@ A CPU rasterizer using GO language.
 
 !![alt](./sources/optimized.gif)
 
+!![alt](./sources/wip03.png)
+
 !![alt](./sources/wip02.png)

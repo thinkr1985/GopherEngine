@@ -45,6 +45,11 @@ type Renderer3D struct {
 		halfVec     nomath.Vec3
 	}
 	precomputedLightDirs []nomath.Vec3
+	DOFEnabled           bool
+	DOFFocusDepth        float64               // Depth value (0-1) where objects are in focus
+	DOFFocusRange        float64               // Range around focus depth that's in focus
+	DOFBlurRadius        float64               // Maximum blur radius in pixels
+	DOFTempBuffer        [][]lookdev.ColorRGBA // Temporary buffer for blur calculations
 }
 
 func NewRenderer3D() *Renderer3D {
@@ -55,12 +60,22 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled: true,
-		FogColor:   lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
-		FogDensity: 0.05,
-		FogStart:   5.0,
-		FogEnd:     500.0,
+		FogEnabled:    false,
+		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
+		FogDensity:    0.05,
+		FogStart:      5.0,
+		FogEnd:        500.0,
+		DOFEnabled:    false,
+		DOFFocusDepth: 0.4,
+		DOFFocusRange: 0.1,
+		DOFBlurRadius: 3.0,
+		DOFTempBuffer: make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 	}
+	// Initialize temp buffer
+	for y := 0; y < SCREEN_HEIGHT; y++ {
+		r.DOFTempBuffer[y] = make([]lookdev.ColorRGBA, SCREEN_WIDTH)
+	}
+
 	r.CPU = utilities.GetCPU()
 	r.GPU = utilities.GetGPU()
 	// Init buffers
@@ -107,6 +122,11 @@ func (r *Renderer3D) Resize(width, height int) {
 			newDepthBuffer[y][x] = math.MaxFloat32
 		}
 	}
+	// Resize DOF temp buffer
+	r.DOFTempBuffer = make([][]lookdev.ColorRGBA, height)
+	for y := 0; y < height; y++ {
+		r.DOFTempBuffer[y] = make([]lookdev.ColorRGBA, width)
+	}
 
 	// Update cached RGBA buffer
 	r.cachedWidth = width
@@ -141,6 +161,10 @@ type DirtyRect struct {
 }
 
 func (r *Renderer3D) ToImage() *image.RGBA {
+	if r.DOFEnabled {
+		r.ApplyDepthBlur()
+	}
+
 	img := image.NewRGBA(image.Rect(0, 0, r.GetWidth(), r.GetHeight()))
 	for y := 0; y < r.GetHeight(); y++ {
 		for x := 0; x < r.GetWidth(); x++ {
@@ -921,4 +945,123 @@ func (r *Renderer3D) calculateTangentBasis(tri *assets.Triangle, modelMatrix *no
 	bitangent = modelMatrix.MultiplyVec3(bitangent).Normalize()
 
 	return tangent, bitangent
+}
+
+func (r *Renderer3D) ApplyDepthBlur() {
+	if !r.DOFEnabled || r.DOFBlurRadius <= 0 {
+		return
+	}
+
+	width := r.GetWidth()
+	height := r.GetHeight()
+
+	// First pass - horizontal blur based on depth
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			depth := float64(r.DepthBuffer[y][x])
+			blurAmount := r.calculateBlurAmount(depth)
+
+			if blurAmount <= 0 {
+				r.DOFTempBuffer[y][x] = r.Framebuffer[y][x]
+				continue
+			}
+
+			radius := int(blurAmount * r.DOFBlurRadius)
+			if radius < 1 {
+				r.DOFTempBuffer[y][x] = r.Framebuffer[y][x]
+				continue
+			}
+
+			var sumR, sumG, sumB float64
+			var count float64
+
+			// Sample pixels horizontally
+			for dx := -radius; dx <= radius; dx++ {
+				sx := x + dx
+				if sx < 0 || sx >= width {
+					continue
+				}
+
+				// Weight samples by distance from center
+				weight := 1.0 - (float64(abs(dx)) / float64(radius+1))
+				color := r.Framebuffer[y][sx]
+
+				sumR += float64(color.R) * weight
+				sumG += float64(color.G) * weight
+				sumB += float64(color.B) * weight
+				count += weight
+			}
+
+			if count > 0 {
+				r.DOFTempBuffer[y][x] = lookdev.ColorRGBA{
+					R: uint8(sumR / count),
+					G: uint8(sumG / count),
+					B: uint8(sumB / count),
+					A: r.Framebuffer[y][x].A,
+				}
+			} else {
+				r.DOFTempBuffer[y][x] = r.Framebuffer[y][x]
+			}
+		}
+	}
+
+	// Second pass - vertical blur based on depth
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			depth := float64(r.DepthBuffer[y][x])
+			blurAmount := r.calculateBlurAmount(depth)
+
+			if blurAmount <= 0 {
+				continue // Skip if no blur needed
+			}
+
+			radius := int(blurAmount * r.DOFBlurRadius)
+			if radius < 1 {
+				continue
+			}
+
+			var sumR, sumG, sumB float64
+			var count float64
+
+			// Sample pixels vertically
+			for dy := -radius; dy <= radius; dy++ {
+				sy := y + dy
+				if sy < 0 || sy >= height {
+					continue
+				}
+
+				// Weight samples by distance from center
+				weight := 1.0 - (float64(abs(dy)) / float64(radius+1))
+				color := r.DOFTempBuffer[sy][x]
+
+				sumR += float64(color.R) * weight
+				sumG += float64(color.G) * weight
+				sumB += float64(color.B) * weight
+				count += weight
+			}
+
+			if count > 0 {
+				r.Framebuffer[y][x] = lookdev.ColorRGBA{
+					R: uint8(sumR / count),
+					G: uint8(sumG / count),
+					B: uint8(sumB / count),
+					A: r.Framebuffer[y][x].A,
+				}
+			}
+		}
+	}
+}
+
+func (r *Renderer3D) calculateBlurAmount(depth float64) float64 {
+	// Calculate how far this pixel is from the focus depth
+	distanceFromFocus := math.Abs(depth - r.DOFFocusDepth)
+
+	// If within focus range, no blur
+	if distanceFromFocus <= r.DOFFocusRange {
+		return 0
+	}
+
+	// Calculate blur amount (0-1) based on distance from focus range
+	blurAmount := (distanceFromFocus - r.DOFFocusRange) / (1.0 - r.DOFFocusRange)
+	return math.Min(blurAmount, 1.0)
 }

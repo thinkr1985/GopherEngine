@@ -4,6 +4,7 @@ import (
 	"GopherEngine/assets"
 	"GopherEngine/nomath"
 	"fmt"
+	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -81,6 +82,8 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
+	s.DefaultLight.Transform.Rotation.X += 0.1 + math.Sin(25)*1.0
+	s.DefaultLight.Transform.Dirty = true
 	// Important to update camera first!
 	s.Camera.Update()
 
