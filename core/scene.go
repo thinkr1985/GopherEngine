@@ -3,7 +3,6 @@ package core
 import (
 	"GopherEngine/assets"
 	"GopherEngine/nomath"
-	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -183,7 +182,6 @@ func (s *Scene) RenderScene() {
 		}
 	}
 }
-
 func (s *Scene) RenderOnThreads() {
 	// First update all scene elements and matrices
 	s.UpdateScene()
@@ -197,23 +195,12 @@ func (s *Scene) RenderOnThreads() {
 	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
 	s.matrixMutex.Unlock()
 
-	// Clear shadow maps
-	var shadowWG sync.WaitGroup
+	// Render shadow maps first (single-threaded)
 	for _, light := range s.Lights {
 		if light.Shadows && light.ShadowMap != nil {
-			shadowWG.Add(1)
-			go func(sm *ShadowMap) {
-				defer shadowWG.Done()
-				for y := range sm.Depth {
-					row := sm.Depth[y]
-					for x := range row {
-						row[x] = math.MaxFloat64
-					}
-				}
-			}(light.ShadowMap)
+			s.Renderer.RenderShadowMap(light, s)
 		}
 	}
-	shadowWG.Wait()
 
 	// Draw overlays
 	s.Grid.Draw(s.Renderer, s.Camera)
@@ -240,12 +227,8 @@ func (s *Scene) RenderOnThreads() {
 			for task := range workChan {
 				tri := task.Triangle
 
-				// Do shadow map rendering inside the worker
+				// Precompute light dot products for this triangle
 				for li, light := range s.Lights {
-					if light.Shadows && light.ShadowMap != nil {
-						lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
-						s.renderTriangleToShadowMap(tri, lightVP.Multiply(task.ModelMatrix), light)
-					}
 					task.LightDots[li] = max(0, tri.WorldNormal.Dot(light.GetDirection()))
 				}
 
@@ -304,6 +287,13 @@ func (s *Scene) RenderOnThreads() {
 	wg.Wait()
 }
 
+func (s *Scene) min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+
+}
 func (s *Scene) renderTriangleToShadowMap(tri *assets.Triangle, mvpMatrix nomath.Mat4, light *Light) {
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))

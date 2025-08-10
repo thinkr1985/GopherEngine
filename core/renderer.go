@@ -34,6 +34,20 @@ type Renderer3D struct {
 	rowLocks []sync.Mutex // NEW: One mutex per row
 	CPU      string
 	GPU      string
+
+	// Pre-allocated buffers to avoid allocations
+	clipVerts   [3]nomath.Vec4
+	screenVerts [3]nomath.Vec3
+	lightDots   []float64
+
+	// Lighting calculation buffers
+	lightingBuffers struct {
+		fragmentPos nomath.Vec3
+		worldNormal nomath.Vec3
+		viewDir     nomath.Vec3
+		lightDir    nomath.Vec3
+		halfVec     nomath.Vec3
+	}
 }
 
 func NewRenderer3D() *Renderer3D {
@@ -443,6 +457,14 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 	}
 }
 
+// Helper functions
+func min3(a, b, c int) int {
+	return min(a, min(b, c))
+}
+
+func max3(a, b, c int) int {
+	return max(a, max(b, c))
+}
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 	// fmt.Printf("Pixel(%d,%d) = %v\n", x, y, color)
 	if x < 0 || x >= r.GetWidth() || y < 0 || y >= r.GetHeight() {
@@ -835,88 +857,4 @@ func clamp(value, min, max float64) float64 {
 		return max
 	}
 	return value
-}
-
-// Helper functions for min/max of 3 values
-func min3(a, b, c int) int {
-	if a < b {
-		if a < c {
-			return a
-		}
-		return c
-	}
-	if b < c {
-		return b
-	}
-	return c
-}
-
-func max3(a, b, c int) int {
-	if a > b {
-		if a > c {
-			return a
-		}
-		return c
-	}
-	if b > c {
-		return b
-	}
-	return c
-}
-
-// Add this to your Renderer3D struct methods
-func (r *Renderer3D) calculateShadowFactor(tri *assets.Triangle, lightNDC nomath.Vec3, light *Light) float64 {
-	if !light.Shadows || light.ShadowMap == nil {
-		return 0.0
-	}
-
-	// Convert to shadow map coordinates [0,1] range
-	sx := (lightNDC.X + 1) * 0.5
-	sy := (1 - (lightNDC.Y+1)*0.5)
-
-	// Early rejection if outside shadow map
-	if sx < 0 || sx > 1 || sy < 0 || sy > 1 {
-		return 0.0
-	}
-
-	// Convert to texture coordinates
-	x := sx * float64(light.ShadowMap.Width-1)
-	y := sy * float64(light.ShadowMap.Height-1)
-
-	// Current fragment's depth in light space [0,1] range
-	fragmentDepth := (lightNDC.Z + 1) * 0.5
-
-	// Calculate normal bias to reduce shadow acne
-	normal := tri.WorldNormal.Normalize()
-	lightDir := light.GetDirection().Normalize()
-	bias := max(0.005*(1.0-normal.Dot(lightDir)), 0.001)
-	fragmentDepth -= bias
-
-	// Rotated grid sampling (16 samples for better quality)
-	offsets := [16]struct{ x, y float64 }{
-		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
-		{-1.5, -0.5}, {0.5, -1.5}, {-0.5, 1.5}, {1.5, 0.5},
-		{-1.5, 1.5}, {1.5, -1.5}, {-1.5, -1.5}, {1.5, 1.5},
-		{-0.5, -0.5}, {0.5, -0.5}, {-0.5, 0.5}, {0.5, 0.5},
-	}
-
-	texelSize := 1.0 / float64(light.ShadowMap.Width)
-	shadow := 0.0
-
-	for _, offset := range offsets {
-		sampleX := x + offset.x*texelSize
-		sampleY := y + offset.y*texelSize
-
-		ix := int(sampleX)
-		iy := int(sampleY)
-		if ix < 0 || ix >= light.ShadowMap.Width || iy < 0 || iy >= light.ShadowMap.Height {
-			continue
-		}
-
-		if fragmentDepth > light.ShadowMap.Depth[iy][ix] {
-			shadow += 1.0
-		}
-	}
-
-	return shadow / 16.0
 }

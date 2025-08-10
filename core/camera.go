@@ -23,9 +23,9 @@ type PerspectiveCamera struct {
 func NewPerspectiveCamera() *PerspectiveCamera {
 	cam := &PerspectiveCamera{
 		Transform:    nomath.NewTransform(),
-		FocalLength:  75,      // Reasonable default
-		NearPlane:    0.1,     // Should be > 0
-		FarPlane:     10000.0, // Large enough to see distant objects
+		FocalLength:  75,     // Reasonable default
+		NearPlane:    0.01,   // Should be > 0
+		FarPlane:     1000.0, // Large enough to see distant objects
 		DirtyFrustum: true,
 	}
 	cam.Transform.Position = nomath.Vec3{Z: 10, Y: 10} // Start 10 units back
