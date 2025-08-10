@@ -14,7 +14,7 @@ func main() {
 	// core.StartCPUProfile()
 	scene := core.NewScene()
 	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
-	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
 	// scene.LoadAssembly("E:/GitHub/GopherEngine/tests/tree.ably")
 	/*
 		assemby := assets.NewAssembly()

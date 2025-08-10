@@ -312,19 +312,13 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		// }
 	}
 }
+
 func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
 	nearPlane := camera.NearPlane
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
 	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
-
-	// Special case for skybox/skysphere (no lighting, no clipping)
-	if tri.Parent.Name == "SkySphereMesh" {
-
-		return
-	}
-
 	// Store in array for easier indexing
 	clipVerts := [3]nomath.Vec4{v0, v1, v2}
 	screenVerts := [3]nomath.Vec3{}
@@ -441,22 +435,33 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 					worldPos := worldV0.Multiply(u).Add(worldV1.Multiply(v)).Add(worldV2.Multiply(w))
 					distance := cameraPos.DistanceTo(worldPos)
 
-					// Calculate lighting
-					finalColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
-
-					// Apply fog
-					new_color := r.applyFog(*finalColor, distance)
-
-					// Alpha blending and pixel drawing
-					if finalColor.A > 0.01 {
-						if finalColor.A < 1.0 {
-							bg := r.Framebuffer[y][x]
-							new_color = lookdev.BlendColors(bg, new_color)
-						}
+					if tri.Parent.Name == "SkySphereMesh" {
+						uv := tri.InterpolatedUV(u, v, w)
+						finalColor := tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
+						bg := r.Framebuffer[y][x]
+						new_color := lookdev.BlendColors(bg, finalColor)
 						r.safeSetPixel(x, y, new_color)
 						r.DepthBuffer[y][x] = float32(depth)
+
+					} else {
+						// Calculate lighting
+						finalColor := r.calculateLighting(tri, camera.Transform.GetForward(), lights, u, v, w)
+
+						// Apply fog
+						new_color := r.applyFog(*finalColor, distance)
+
+						// Alpha blending and pixel drawing
+						if finalColor.A > 0.01 {
+							if finalColor.A < 1.0 {
+								bg := r.Framebuffer[y][x]
+								new_color = lookdev.BlendColors(bg, new_color)
+							}
+							r.safeSetPixel(x, y, new_color)
+							r.DepthBuffer[y][x] = float32(depth)
+						}
 					}
 				}
+
 			}
 		}
 	}
