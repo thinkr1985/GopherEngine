@@ -49,8 +49,8 @@ func NewPointLight(s *Scene) *Light {
 	s.Lights = append(s.Lights, l)
 	// making light color a white.
 	l.Color.R = 255
-	l.Color.G = 255
-	l.Color.B = 255
+	l.Color.G = 239
+	l.Color.B = 222
 	l.Transform.UpdateModelMatrix()
 	l.InitShadowMap(1024, 1024)
 	return l
@@ -62,7 +62,7 @@ func NewDirectionalLight(s *Scene) *Light {
 		scene:       s,
 		Transform:   nomath.NewTransform(),
 		Color:       lookdev.NewColorRGBA(),
-		Intensity:   10.0,
+		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypeDirectional,
 		Shadows:     true,
@@ -89,7 +89,7 @@ func NewSunLight(s *Scene) *Light {
 		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypeSun,
-		Shadows:     true,
+		Shadows:     false,
 	}
 	s.Lights = append(s.Lights, l)
 	// making light color a white.
@@ -99,6 +99,7 @@ func NewSunLight(s *Scene) *Light {
 	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 20, Z: 20})
 	l.Transform.Rotation.X = 4.2
 	l.Transform.Rotation.Y = 1.0
+	l.Transform.Dirty = true
 	l.Transform.UpdateModelMatrix()
 
 	// Initialize shadow map for directional light

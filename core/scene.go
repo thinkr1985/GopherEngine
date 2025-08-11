@@ -82,7 +82,7 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-	s.DefaultLight.Transform.Rotation.X += 0.1 + math.Sin(25)*1.0
+	s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
 	s.DefaultLight.Transform.Dirty = true
 	// Important to update camera first!
 	s.Camera.Update()
@@ -122,15 +122,13 @@ func (s *Scene) LoadAssembly(assembly_path string) {
 	s.AddAssembly(assembly)
 
 }
+
 func (s *Scene) RenderScene() {
 	s.DrawnTriangles = 0
 	s.UpdateScene()
 
 	// Drawing scene elements first!
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
-	for _, light := range s.Lights {
-		light.DrawLight()
-	}
 
 	// Rendering a scene
 	s.matrixMutex.Lock()
@@ -142,10 +140,11 @@ func (s *Scene) RenderScene() {
 	viewDir := s.Camera.Transform.GetForward()
 	viewProjMatrix := s.cachedViewProjMatrix
 
-	// First render shadow maps for all lights
+	// Clear shadow map
+
 	for _, light := range s.Lights {
+		light.DrawLight()
 		if light.Shadows && light.ShadowMap != nil {
-			// Clear shadow map
 			for y := 0; y < light.ShadowMap.Height; y++ {
 				for x := 0; x < light.ShadowMap.Width; x++ {
 					light.ShadowMap.Depth[y][x] = math.MaxFloat64
@@ -187,7 +186,7 @@ func (s *Scene) RenderScene() {
 					// Render to shadow maps
 					if light.Shadows && light.ShadowMap != nil {
 						shadowMVP := light.LightVp.Multiply(modelMatrix)
-						s.Renderer.RenderTriangleShadowMap(&shadowMVP, triangle, light)
+						s.Renderer.renderShadowTriangle(&shadowMVP, triangle, light)
 					}
 				}
 
@@ -210,18 +209,16 @@ func (s *Scene) RenderOnThreads() {
 	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
 	s.matrixMutex.Unlock()
 
-	// Render shadow maps first (single-threaded)
-	for _, light := range s.Lights {
-		if light.Shadows && light.ShadowMap != nil {
-			s.Renderer.RenderShadowMap(light, s)
-		}
-	}
-
-	// Draw overlays
-	// s.Grid.Draw(s.Renderer, s.Camera)
-	// s.ViewAxes.Draw(s.Renderer, s.Camera)
+	// Clear shadow maps
 	for _, light := range s.Lights {
 		light.DrawLight()
+		if light.Shadows && light.ShadowMap != nil {
+			for y := 0; y < light.ShadowMap.Height; y++ {
+				for x := 0; x < light.ShadowMap.Width; x++ {
+					light.ShadowMap.Depth[y][x] = math.MaxFloat64
+				}
+			}
+		}
 	}
 
 	// Get view direction (after matrix updates)
@@ -245,6 +242,12 @@ func (s *Scene) RenderOnThreads() {
 				// Precompute light dot products for this triangle
 				for li, light := range s.Lights {
 					task.LightDots[li] = max(0, tri.WorldNormal.Dot(light.GetDirection()))
+
+					// Render to shadow maps if needed
+					if light.Shadows && light.ShadowMap != nil {
+						shadowMVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix).Multiply(task.ModelMatrix)
+						s.Renderer.renderShadowTriangle(&shadowMVP, tri, light)
+					}
 				}
 
 				// Render the triangle using the correct matrices

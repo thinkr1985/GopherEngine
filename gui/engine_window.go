@@ -114,7 +114,7 @@ func Window(scene *core.Scene) {
 
 		// Draw everything
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.DarkGray)
+		rl.ClearBackground(rl.Gray)
 
 		rl.DrawTexturePro(
 			fullResTex,

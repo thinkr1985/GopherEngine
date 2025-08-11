@@ -18,7 +18,6 @@ type Renderer3D struct {
 	DepthBuffer     [][]float32           // Changed to float32 for better cache usage
 	BackFaceCulling bool
 	bufferMutex     sync.Mutex // For thread-safe resizing
-	ambienceFactor  float64
 	shadowOffsets4  [4]struct{ x, y float64 }
 
 	CachedRGBA   []color.RGBA
@@ -37,14 +36,6 @@ type Renderer3D struct {
 
 	// Pre-allocated buffers to avoid allocations
 
-	// Lighting calculation buffers
-	lightingBuffers struct {
-		fragmentPos nomath.Vec3
-		worldNormal nomath.Vec3
-		viewDir     nomath.Vec3
-		lightDir    nomath.Vec3
-		halfVec     nomath.Vec3
-	}
 	precomputedLightDirs []nomath.Vec3
 	DOFEnabled           bool
 	DOFFocusDepth        float64               // Depth value (0-1) where objects are in focus
@@ -59,7 +50,6 @@ func NewRenderer3D() *Renderer3D {
 		Framebuffer:     make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
-		ambienceFactor:  0.01,
 
 		FogEnabled:    false,
 		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
@@ -461,7 +451,6 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 					} else {
 						// Calculate lighting
 						finalColor := r.calculateLighting(modelMatrix, tri, camera.Transform.GetForward(), lights, u, v, w)
-
 						// Apply fog
 						new_color := r.applyFog(*finalColor, distance)
 
@@ -684,7 +673,8 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 	}
 }
 
-func (r *Renderer3D) RenderTriangleShadowMap(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
+// Helper function to render a triangle to shadow map
+func (s *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
@@ -752,12 +742,15 @@ func (r *Renderer3D) calculateLighting(
 	u, v, w float64,
 ) *lookdev.ColorRGBA {
 	// Get base color from texture or material
-	var baseColor lookdev.ColorRGBA
+	baseColor := *lookdev.NewColorRGBA()
+	baseColor.R = 0
+	baseColor.G = 0
+	baseColor.B = 0
+	baseColor.A = 1
+
 	if tri.HasTexture {
 		uv := tri.InterpolatedUV(u, v, w)
 		baseColor = tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
-	} else {
-		baseColor = *tri.DiffuseBuffer
 	}
 
 	// Early exit if fully transparent
@@ -832,7 +825,6 @@ func (r *Renderer3D) calculateLighting(
 		diffuseR += float64(light.Color.R) * diff * light.Intensity
 		diffuseG += float64(light.Color.G) * diff * light.Intensity
 		diffuseB += float64(light.Color.B) * diff * light.Intensity
-
 		// Specular
 		halfVec := lightDir.Add(viewDir).Normalize()
 		specAngle := max(0.0, normal.Dot(halfVec))
@@ -842,7 +834,6 @@ func (r *Renderer3D) calculateLighting(
 		specularG += float64(light.Color.G) * spec * light.Intensity
 		specularB += float64(light.Color.B) * spec * light.Intensity
 	}
-
 	// Combine base color and lighting
 	rFinal := clampColor(float64(baseColor.R) + diffuseR + specularR)
 	gFinal := clampColor(float64(baseColor.G) + diffuseG + specularG)
@@ -948,13 +939,6 @@ func (r *Renderer3D) applyFog(color lookdev.ColorRGBA, distance float64) lookdev
 	if !r.FogEnabled || distance < r.FogStart {
 		return color
 	}
-
-	// r.FogEnabled = true
-	// r.FogColor = lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0}
-	// r.FogStart = 10.0
-	// r.FogEnd = 50
-	// r.FogDensity = 0.1
-
 	fogFactor := 1.0 - math.Exp(-math.Pow(r.FogDensity*distance, 2))
 	fogFactor = clamp(fogFactor, 0.0, 1.0)
 

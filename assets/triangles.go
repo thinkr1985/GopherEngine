@@ -50,11 +50,10 @@ func NewTriangle(
 		UV0:            uv0,
 		UV1:            uv1,
 		UV2:            uv2,
-		DiffuseBuffer:  &material.DiffuseColor, // Initialize with material color
-		SpecularBuffer: &material.SpecularColor,
+		DiffuseBuffer:  nil,
+		SpecularBuffer: nil,
 		BufferCache:    false,
 	}
-
 	return tri
 }
 func (t *Triangle) Centroid() nomath.Vec3 {
@@ -98,16 +97,6 @@ func (t *Triangle) InterpolatedUV(u, v, w float64) nomath.Vec2 {
 	}
 }
 
-func clamp(value, min, max float64) float64 {
-	if value < min {
-		return min
-	}
-	if value > max {
-		return max
-	}
-	return value
-}
-
 func Barycentric(p nomath.Vec2, v0Screen, v1Screen, v2Screen nomath.Vec2) (u, v, w float64) {
 	denom := (v1Screen.V-v2Screen.V)*(v0Screen.U-v2Screen.U) +
 		(v2Screen.U-v1Screen.U)*(v0Screen.V-v2Screen.V)
@@ -129,14 +118,6 @@ func (t *Triangle) PreComputeBuffers() {
 		return
 	}
 
-	// Initialize buffers if nil
-	if t.DiffuseBuffer == nil {
-		t.DiffuseBuffer = &t.Material.DiffuseColor
-	}
-	if t.SpecularBuffer == nil {
-		t.SpecularBuffer = &t.Material.SpecularColor
-	}
-
 	t.HasTexture = (t.Material != nil && t.Material.DiffuseTexture != nil)
 
 	if t.HasTexture {
@@ -156,9 +137,6 @@ func (t *Triangle) PreComputeBuffers() {
 			B: uint8((float64(color0.B) + float64(color1.B) + float64(color2.B)) / 3),
 			A: (color0.A + color1.A + color2.A) / 3,
 		}
-	} else {
-		// Fallback to material color
-		t.DiffuseBuffer = &t.Material.DiffuseColor
 	}
 
 	t.BufferCache = true
