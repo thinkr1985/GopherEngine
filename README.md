@@ -8,3 +8,7 @@ A CPU rasterizer using GO language.
 !![alt](./sources/wip_window.png)
 
 !![alt](./sources/optimized.gif)
+
+!![alt](./sources/wip03.png)
+
+!![alt](./sources/wip02.png)

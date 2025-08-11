@@ -148,7 +148,6 @@ func (m Mat4) ToEulerAnglesYXZ() Vec3 {
 	return angles
 }
 
-// Multiply optimized version (unrolled loops where possible)
 func (m Mat4) Multiply(other Mat4) Mat4 {
 	return Mat4{
 		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
@@ -183,7 +182,6 @@ func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 	}
 }
 
-// TransformVec3 transforms a Vec3 using the 3x3 portion of the matrix (ignoring translation).
 func (m Mat4) TransformVec3(v Vec3) Vec3 {
 	return Vec3{
 		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
@@ -204,4 +202,31 @@ func (m Mat4) MultiplyVec4Batch(vectors []Vec4) []Vec4 {
 		}
 	}
 	return results
+}
+
+func Ortho(left, right, bottom, top, near, far float64) Mat4 {
+	return Mat4{
+		2 / (right - left), 0, 0, 0,
+		0, 2 / (top - bottom), 0, 0,
+		0, 0, -2 / (far - near), 0,
+		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
+	}
+}
+
+// MultiplyVec3 multiplies a 4x4 matrix with a 3D vector (treats it as vec4 with w=0)
+func (m *Mat4) MultiplyVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z,
+	}
+}
+
+// MultiplyVec3WithW multiplies a 4x4 matrix with a 3D vector (with specified w component)
+func (m *Mat4) MultiplyVec3WithW(v Vec3, w float64) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z + m[12]*w,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z + m[13]*w,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z + m[14]*w,
+	}
 }

@@ -18,10 +18,9 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 	}
 	defer file.Close()
 
-	// Create new geometry with default material
 	geomName := strings.TrimSuffix(filepath, ".obj")
-	if geomName == filepath { // If no .obj extension was found
-		geomName = filepath // Use full path as name
+	if geomName == filepath {
+		geomName = filepath
 	}
 
 	geom := &Geometry{
@@ -33,12 +32,12 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 		Triangles:   make([]*Triangle, 0),
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial(geomName + "_material"),
+		IsVisible:   true,
 	}
-
-	// Temporary storage for OBJ data
-	var vertices []*nomath.Vec3
-	var texCoords []*nomath.Vec2
-	var normals []*nomath.Vec3
+	geom.Transform.Dirty = true
+	var vertices []nomath.Vec3
+	var texCoords []nomath.Vec2
+	var normals []nomath.Vec3
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
@@ -59,7 +58,7 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 		data := fields[1:]
 
 		switch prefix {
-		case "v": // Vertex position
+		case "v":
 			if len(data) < 3 {
 				return nil, fmt.Errorf("line %d: vertex needs at least 3 coordinates", lineNum)
 			}
@@ -75,11 +74,9 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 			if err != nil {
 				return nil, fmt.Errorf("line %d: invalid vertex Z coordinate: %v", lineNum, err)
 			}
-			vertex := &nomath.Vec3{X: x, Y: y, Z: z}
-			vertices = append(vertices, vertex)
-			geom.Vertices = append(geom.Vertices, vertex)
+			vertices = append(vertices, nomath.Vec3{X: x, Y: y, Z: z})
 
-		case "vt": // Texture coordinate
+		case "vt":
 			if len(data) < 2 {
 				return nil, fmt.Errorf("line %d: texture coordinate needs at least 2 values", lineNum)
 			}
@@ -91,11 +88,9 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 			if err != nil {
 				return nil, fmt.Errorf("line %d: invalid texture V coordinate: %v", lineNum, err)
 			}
-			uv := &nomath.Vec2{U: u, V: v}
-			texCoords = append(texCoords, uv)
-			geom.UVs = append(geom.UVs, uv)
+			texCoords = append(texCoords, nomath.Vec2{U: u, V: v})
 
-		case "vn": // Vertex normal
+		case "vn":
 			if len(data) < 3 {
 				return nil, fmt.Errorf("line %d: normal needs at least 3 coordinates", lineNum)
 			}
@@ -111,27 +106,21 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 			if err != nil {
 				return nil, fmt.Errorf("line %d: invalid normal Z coordinate: %v", lineNum, err)
 			}
-			normal := nomath.Vec3{X: x, Y: y, Z: z}.Normalize()
-			normals = append(normals, &normal)
-			geom.Normals = append(geom.Normals, &normal)
+			normals = append(normals, nomath.Vec3{X: x, Y: y, Z: z}.Normalize())
 
-		case "f": // Face
+		case "f":
 			if len(data) < 3 {
 				return nil, fmt.Errorf("line %d: face needs at least 3 vertices", lineNum)
 			}
 
-			var faceIndices []struct {
-				vIdx, tIdx, nIdx int
-			}
-
-			// Parse all vertex data for the face
+			var faceVerts []struct{ v, vt, vn int }
 			for _, vertex := range data {
 				parts := strings.Split(vertex, "/")
 				if len(parts) == 0 {
 					return nil, fmt.Errorf("line %d: invalid face vertex format", lineNum)
 				}
 
-				// Parse vertex index (required)
+				// Parse vertex index
 				vIdx, err := strconv.Atoi(parts[0])
 				if err != nil {
 					return nil, fmt.Errorf("line %d: invalid vertex index: %v", lineNum, err)
@@ -139,87 +128,98 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 				if vIdx < 0 {
 					vIdx = len(vertices) + vIdx + 1
 				}
-				vIdx-- // Convert to 0-based index
+				vIdx--
 
-				// Parse texture coordinate index (optional)
-				tIdx := -1
+				// Parse texture coordinate index (if exists)
+				vtIdx := -1
 				if len(parts) > 1 && parts[1] != "" {
-					tIdx, err = strconv.Atoi(parts[1])
+					vtIdx, err = strconv.Atoi(parts[1])
 					if err != nil {
 						return nil, fmt.Errorf("line %d: invalid texture coordinate index: %v", lineNum, err)
 					}
-					if tIdx < 0 {
-						tIdx = len(texCoords) + tIdx + 1
+					if vtIdx < 0 {
+						vtIdx = len(texCoords) + vtIdx + 1
 					}
-					tIdx-- // Convert to 0-based index
+					vtIdx--
 				}
 
-				// Parse normal index (optional)
-				nIdx := -1
+				// Parse normal index (if exists)
+				vnIdx := -1
 				if len(parts) > 2 && parts[2] != "" {
-					nIdx, err = strconv.Atoi(parts[2])
+					vnIdx, err = strconv.Atoi(parts[2])
 					if err != nil {
 						return nil, fmt.Errorf("line %d: invalid normal index: %v", lineNum, err)
 					}
-					if nIdx < 0 {
-						nIdx = len(normals) + nIdx + 1
+					if vnIdx < 0 {
+						vnIdx = len(normals) + vnIdx + 1
 					}
-					nIdx-- // Convert to 0-based index
+					vnIdx--
 				}
 
-				faceIndices = append(faceIndices, struct{ vIdx, tIdx, nIdx int }{vIdx, tIdx, nIdx})
+				faceVerts = append(faceVerts, struct{ v, vt, vn int }{vIdx, vtIdx, vnIdx})
 			}
 
 			// Triangulate polygon (assuming convex)
-			for i := 1; i < len(faceIndices)-1; i++ {
-				v0 := faceIndices[0]
-				v1 := faceIndices[i]
-				v2 := faceIndices[i+1]
+			for i := 1; i < len(faceVerts)-1; i++ {
+				v0 := faceVerts[0]
+				v1 := faceVerts[i]
+				v2 := faceVerts[i+1]
 
 				// Create triangle with references to the geometry's vertices/normals/UVs
+				v0Ptr := &vertices[v0.v]
+				v1Ptr := &vertices[v1.v]
+				v2Ptr := &vertices[v2.v]
+
+				var uv0Ptr, uv1Ptr, uv2Ptr *nomath.Vec2
+				var n0Ptr, n1Ptr, n2Ptr *nomath.Vec3
+
+				if v0.vt >= 0 && v1.vt >= 0 && v2.vt >= 0 {
+					uv0Ptr = &texCoords[v0.vt]
+					uv1Ptr = &texCoords[v1.vt]
+					uv2Ptr = &texCoords[v2.vt]
+				}
+
+				if v0.vn >= 0 && v1.vn >= 0 && v2.vn >= 0 {
+					n0Ptr = &normals[v0.vn]
+					n1Ptr = &normals[v1.vn]
+					n2Ptr = &normals[v2.vn]
+				}
+
 				tri := NewTriangle(
 					geom,
 					geom.Material,
-					vertices[v0.vIdx],
-					vertices[v1.vIdx],
-					vertices[v2.vIdx],
-					nil, // Normals will be set below if available
-					nil,
-					nil,
-					nil, // UVs will be set below if available
-					nil,
-					nil,
+					v0Ptr, v1Ptr, v2Ptr,
+					n0Ptr, n1Ptr, n2Ptr,
+					uv0Ptr, uv1Ptr, uv2Ptr,
 				)
-
-				// Set normals if available
-				if v0.nIdx >= 0 && v1.nIdx >= 0 && v2.nIdx >= 0 {
-					tri.N0 = normals[v0.nIdx]
-					tri.N1 = normals[v1.nIdx]
-					tri.N2 = normals[v2.nIdx]
-				}
-
-				// Set texture coordinates if available
-				if v0.tIdx >= 0 && v1.tIdx >= 0 && v2.tIdx >= 0 {
-					tri.UV0 = texCoords[v0.tIdx]
-					tri.UV1 = texCoords[v1.tIdx]
-					tri.UV2 = texCoords[v2.tIdx]
-				}
 
 				geom.Triangles = append(geom.Triangles, tri)
 			}
 		}
+
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading OBJ file: %v", err)
 	}
 
+	// Store the vertices/normals/UVs in the geometry
+	for i := range vertices {
+		geom.Vertices = append(geom.Vertices, &vertices[i])
+	}
+	for i := range texCoords {
+		geom.UVs = append(geom.UVs, &texCoords[i])
+	}
+	for i := range normals {
+		geom.Normals = append(geom.Normals, &normals[i])
+	}
+
 	// Calculate normals if not provided in file
 	if len(normals) == 0 {
 		geom.CalculateNormals()
 	}
-
-	// Compute bounding box
+	geom.Transform.Dirty = true
+	geom.Transform.UpdateModelMatrix()
 	geom.ComputeBoundingBox()
 
 	return geom, nil
