@@ -32,6 +32,7 @@ type Light struct {
 	Type        int
 	Shadows     bool
 	ShadowMap   *ShadowMap
+	LightVp     *nomath.Mat4
 }
 
 func NewPointLight(s *Scene) *Light {

@@ -19,6 +19,7 @@ type Renderer3D struct {
 	BackFaceCulling bool
 	bufferMutex     sync.Mutex // For thread-safe resizing
 	ambienceFactor  float64
+	shadowOffsets4  [4]struct{ x, y float64 }
 
 	CachedRGBA   []color.RGBA
 	cachedWidth  int
@@ -60,7 +61,7 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled:    true,
+		FogEnabled:    false,
 		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity:    0.05,
 		FogStart:      5.0,
@@ -85,6 +86,12 @@ func NewRenderer3D() *Renderer3D {
 		for x := 0; x < SCREEN_WIDTH; x++ {
 			r.DepthBuffer[y][x] = math.MaxFloat32
 		}
+	}
+	r.shadowOffsets4 = [4]struct{ x, y float64 }{
+		{-0.5, -0.5},
+		{0.5, -0.5},
+		{-0.5, 0.5},
+		{0.5, 0.5},
 	}
 	return r
 }
@@ -487,72 +494,98 @@ func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 }
 
 func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
+	// Quick-outs
 	if !light.Shadows || light.ShadowMap == nil {
 		return false
 	}
 
-	// Transform to light space
-	lightPos := light.ShadowMap.ViewMatrix.MultiplyVec4(pos.ToVec4(1.0))
-	lightClip := light.ShadowMap.ProjMatrix.MultiplyVec4(lightPos)
+	// Use cached Light VP matrix if available (faster than multiplying View*Proj here)
+	// you already set light.LightVp elsewhere in your code path; prefer that
+	var lightVP nomath.Mat4
+	if light.LightVp != nil {
+		lightVP = *light.LightVp
+	} else {
+		// fallback to current shadowmap matrices
+		lightVP = light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+	}
 
-	// Early rejection if behind light
-	if lightClip.W <= 0 {
+	// Transform fragment position into light clip space and then NDC
+	lightClip := lightVP.MultiplyVec4(pos.ToVec4(1.0))
+
+	// Cull if behind the light (w <= 0)
+	if lightClip.W <= 0.0 {
 		return false
 	}
 
-	// Perspective divide
-	divided := lightClip.Divide(lightClip.W)
-	ndc := divided.ToVec3()
+	ndc := lightClip.Divide(lightClip.W).ToVec3()
 
-	// Convert to shadow map coordinates [0,1] range
-	sx := (ndc.X + 1) * 0.5
-	sy := (1 - (ndc.Y+1)*0.5)
+	// Convert NDC to shadow-map UV [0,1]
+	u := (ndc.X + 1.0) * 0.5
+	v := (1.0 - ndc.Y) * 0.5 // NOTE: your earlier code used (1 - (ndc.Y+1)*0.5) which equals this
 
-	// Early rejection if outside shadow map
-	if sx < 0 || sx > 1 || sy < 0 || sy > 1 {
+	// Quick reject if outside shadow map
+	if u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0 {
 		return false
 	}
 
-	// Convert to texture coordinates
-	x := sx * float64(light.ShadowMap.Width-1)
-	y := sy * float64(light.ShadowMap.Height-1)
+	smW := float64(light.ShadowMap.Width)
+	smH := float64(light.ShadowMap.Height)
 
-	// Current fragment's depth in light space [0,1] range
-	fragmentDepth := (ndc.Z + 1) * 0.5
+	// Convert to texel space (floating)
+	texX := u * (smW - 1.0)
+	texY := v * (smH - 1.0)
 
-	// Calculate normal bias to reduce shadow acne
-	normal := light.GetDirection().Normalize()
-	bias := max(0.005*(1.0-normal.Dot(light.GetDirection())), 0.001)
-	fragmentDepth -= bias
+	// Fragment depth in light NDC space to [0..1]
+	fragDepth := (ndc.Z + 1.0) * 0.5
 
-	// Rotated grid sampling (16 samples for better quality)
-	offsets := [16]struct{ x, y float64 }{
-		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
-		{-1.5, -0.5}, {0.5, -1.5}, {-0.5, 1.5}, {1.5, 0.5},
-		{-1.5, 1.5}, {1.5, -1.5}, {-1.5, -1.5}, {1.5, 1.5},
-		{-0.5, -0.5}, {0.5, -0.5}, {-0.5, 0.5}, {0.5, 0.5},
+	// Simple constant bias (fast). If you want angle-based bias,
+	// compute it outside this function and pass or store it per-fragment.
+	const bias = 0.0015
+	fragDepth -= bias
+
+	// PCF: 4-sample box / bilinear-like sampling (fast)
+	texelSizeX := 1.0 / smW
+	texelSizeY := 1.0 / smH
+
+	// bounds clamp helper inline
+	clampTex := func(ix int, iy int) (int, int) {
+		if ix < 0 {
+			ix = 0
+		} else if ix >= light.ShadowMap.Width {
+			ix = light.ShadowMap.Width - 1
+		}
+		if iy < 0 {
+			iy = 0
+		} else if iy >= light.ShadowMap.Height {
+			iy = light.ShadowMap.Height - 1
+		}
+		return ix, iy
 	}
 
-	texelSize := 1.0 / float64(light.ShadowMap.Width)
-	shadow := 0.0
+	var shadowCount float64
+	// Use the precomputed small offset array (4 taps)
+	for i := 0; i < 4; i++ {
+		offset := r.shadowOffsets4[i]
+		sx := texX + offset.x*texelSizeX
+		sy := texY + offset.y*texelSizeY
 
-	for _, offset := range offsets {
-		sampleX := x + offset.x*texelSize
-		sampleY := y + offset.y*texelSize
+		ix := int(math.Floor(sx + 0.5))
+		iy := int(math.Floor(sy + 0.5))
+		ix, iy = clampTex(ix, iy)
 
-		ix := int(sampleX)
-		iy := int(sampleY)
-		if ix < 0 || ix >= light.ShadowMap.Width || iy < 0 || iy >= light.ShadowMap.Height {
-			continue
-		}
-
-		if fragmentDepth > light.ShadowMap.Depth[iy][ix] {
-			shadow += 1.0
+		depth := light.ShadowMap.Depth[iy][ix]
+		// If stored depth is max (meaning nothing rendered) treat as lit
+		if depth == math.MaxFloat64 {
+			// skip increment
+		} else {
+			if fragDepth > depth {
+				shadowCount += 1.0
+			}
 		}
 	}
 
-	// Return shadow factor (0.0 = fully lit, 1.0 = fully shadowed)
-	return shadow/16.0 > 0.5
+	// If majority samples are occluded -> in shadow
+	return (shadowCount / 4.0) > 0.5
 }
 
 func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
@@ -651,6 +684,66 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 	}
 }
 
+func (r *Renderer3D) RenderTriangleShadowMap(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
+	// Transform vertices to clip space
+	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
+	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
+	v2 := mvpMatrix.MultiplyVec4(tri.V2.ToVec4(1.0))
+
+	// Skip triangles that are completely behind the light
+	if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
+		return
+	}
+
+	// Perform perspective divide
+	ndc0 := v0.Divide(v0.W).ToVec3()
+	ndc1 := v1.Divide(v1.W).ToVec3()
+	ndc2 := v2.Divide(v2.W).ToVec3()
+
+	// Convert to shadow map coordinates [0,1] range
+	v0Screen := nomath.Vec2{
+		U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+	v1Screen := nomath.Vec2{
+		U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+	v2Screen := nomath.Vec2{
+		U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
+		V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
+	}
+
+	// Convert depth from [-1,1] to [0,1] range
+	depth0 := (ndc0.Z + 1) * 0.5
+	depth1 := (ndc1.Z + 1) * 0.5
+	depth2 := (ndc2.Z + 1) * 0.5
+
+	// Find bounding box in shadow map
+	minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
+	maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
+	minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
+	maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
+
+	// Rasterize triangle to shadow map
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			p := nomath.Vec2{U: float64(x), V: float64(y)}
+			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
+
+			if u >= 0 && v >= 0 && w >= 0 {
+				// Interpolate depth
+				depth := u*depth0 + v*depth1 + w*depth2
+
+				// Update shadow map depth if this is closer
+				if depth < light.ShadowMap.Depth[y][x] {
+					light.ShadowMap.Depth[y][x] = depth
+				}
+			}
+		}
+	}
+}
+
 func (r *Renderer3D) calculateLighting(
 	modelMatrix *nomath.Mat4,
 	tri *assets.Triangle,
@@ -677,9 +770,10 @@ func (r *Renderer3D) calculateLighting(
 	fragmentPos := modelMatrix.MultiplyVec4(localPos.ToVec4(1.0)).ToVec3()
 
 	// Get interpolated normal
-	worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
-		tri.InterpolatedNormal(u, v, w),
-	).Normalize()
+	worldNormal := tri.WorldNormal
+	// worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
+	// 	tri.InterpolatedNormal(u, v, w),
+	// ).Normalize()
 
 	// Apply normal mapping if available
 	if tri.Material.NormalTexture != nil && tri.UV0 != nil && tri.UV1 != nil && tri.UV2 != nil {
@@ -894,6 +988,8 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		} else {
 			r.precomputedLightDirs[i] = light.Transform.Position
 		}
+		LightVp := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+		light.LightVp = (*nomath.Mat4)(&LightVp)
 	}
 }
 

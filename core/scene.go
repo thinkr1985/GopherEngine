@@ -122,13 +122,11 @@ func (s *Scene) LoadAssembly(assembly_path string) {
 	s.AddAssembly(assembly)
 
 }
-
 func (s *Scene) RenderScene() {
 	s.DrawnTriangles = 0
 	s.UpdateScene()
 
-	// Drawing scene elements firsst!
-	s.Grid.Draw(s.Renderer, s.Camera)
+	// Drawing scene elements first!
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
 	for _, light := range s.Lights {
 		light.DrawLight()
@@ -139,22 +137,25 @@ func (s *Scene) RenderScene() {
 	s.cachedViewMatrix = s.Camera.GetViewMatrix()
 	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
 	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
-
 	s.matrixMutex.Unlock()
-
-	// Render shadow maps first
-	for _, light := range s.Lights {
-		if light.Shadows {
-			s.Renderer.RenderShadowMap(light, s)
-		}
-	}
 
 	viewDir := s.Camera.Transform.GetForward()
 	viewProjMatrix := s.cachedViewProjMatrix
 
+	// First render shadow maps for all lights
+	for _, light := range s.Lights {
+		if light.Shadows && light.ShadowMap != nil {
+			// Clear shadow map
+			for y := 0; y < light.ShadowMap.Height; y++ {
+				for x := 0; x < light.ShadowMap.Width; x++ {
+					light.ShadowMap.Depth[y][x] = math.MaxFloat64
+				}
+			}
+		}
+	}
+
 	// Precompute light dot normal per triangle
 	for _, assembly := range s.Assemblies {
-
 		if !assembly.IsVisible {
 			continue
 		}
@@ -164,13 +165,16 @@ func (s *Scene) RenderScene() {
 				continue
 			}
 
+			modelMatrix := geom.Transform.GetMatrix()
+			mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+			normalMatrix := modelMatrix.Inverse().Transpose()
+
 			for _, triangle := range geom.Triangles {
+				// Backface culling
 				if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
 					continue
 				}
-				modelMatrix := geom.Transform.GetMatrix()
-				mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
-				normalMatrix := modelMatrix.Inverse().Transpose()
+
 				// Transform triangle normal using normalMatrix
 				worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
 				triangle.WorldNormal = worldNormal
@@ -178,8 +182,13 @@ func (s *Scene) RenderScene() {
 				// Precompute light dot normal for each light
 				triangle.LightDotNormals = make([]float64, len(s.Lights))
 				for i, light := range s.Lights {
-					lightDir := light.GetDirection() // assuming normalized direction
-					triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+					triangle.LightDotNormals[i] = max(0, worldNormal.Dot(s.Renderer.precomputedLightDirs[i]))
+
+					// Render to shadow maps
+					if light.Shadows && light.ShadowMap != nil {
+						shadowMVP := light.LightVp.Multiply(modelMatrix)
+						s.Renderer.RenderTriangleShadowMap(&shadowMVP, triangle, light)
+					}
 				}
 
 				s.Renderer.RenderTriangle(&mvpMatrix, &modelMatrix, s.Camera, triangle, s.Lights, s)
@@ -188,6 +197,7 @@ func (s *Scene) RenderScene() {
 		}
 	}
 }
+
 func (s *Scene) RenderOnThreads() {
 	// First update all scene elements and matrices
 	s.UpdateScene()
