@@ -15,7 +15,7 @@ func main() {
 	scene := core.NewScene()
 	scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/ManySpheres.asset")
 
 	/*

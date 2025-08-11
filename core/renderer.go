@@ -60,7 +60,7 @@ func NewRenderer3D() *Renderer3D {
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 		ambienceFactor:  0.01,
 
-		FogEnabled:    false,
+		FogEnabled:    true,
 		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity:    0.05,
 		FogStart:      5.0,
@@ -581,6 +581,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		for _, geom := range assembly.Geometries {
 			if !scene.Camera.IsVisible(geom.BoundingBox) || !geom.IsVisible {
 				continue
+
 			}
 			for _, triangle := range geom.Triangles {
 				modelMatrix := geom.Transform.GetMatrix()
@@ -627,6 +628,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 				maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
 				// Rasterize triangle to shadow map
 				for y := minY; y <= maxY; y++ {
+
 					for x := minX; x <= maxX; x++ {
 						p := nomath.Vec2{U: float64(x), V: float64(y)}
 						u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
@@ -638,6 +640,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 
 							// Update shadow map depth if this is closer
 							if depth < light.ShadowMap.Depth[y][x] {
+
 								light.ShadowMap.Depth[y][x] = depth
 							}
 						}
@@ -717,10 +720,10 @@ func (r *Renderer3D) calculateLighting(
 		attenuation := 1.0 / (1.0 + light.Attenuation*dist*dist)
 
 		// Calculate shadow factor
-		shadowFactor := 1.2
+		shadowFactor := 0.0
 		if light.Shadows && light.Intensity > 0.1 {
 			if r.isInShadow(fragmentPos, light) {
-				shadowFactor = 1.2
+				shadowFactor = 1.0
 			}
 		}
 

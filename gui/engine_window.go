@@ -62,7 +62,6 @@ func Window(scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.PixelFormat(7),
 	})
-	rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -108,7 +107,6 @@ func Window(scene *core.Scene) {
 				Mipmaps: 1,
 				Format:  rl.PixelFormat(7),
 			})
-			rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 		} else {
 			// Update existing texture
 			rl.UpdateTexture(fullResTex, rgbaSlice)
@@ -174,7 +172,6 @@ func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
 	scene.ResolutionScale = math.Max(scene.MinResolutionScale,
 		math.Min(1.0, scene.ResolutionScale))
 
-	// Resize will happen in next handleWindowResize call
 }
 
 func draw_debug_stats(scene *core.Scene) {
