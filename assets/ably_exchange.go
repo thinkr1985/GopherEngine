@@ -24,12 +24,13 @@ type SerializableAssembly struct {
 }
 
 type SerializableGeomRef struct {
-	ID        string                       `json:"id"`
-	Name      string                       `json:"name"`
-	OBJPath   string                       `json:"obj_path"`
-	Material  lookdev.SerializableMaterial `json:"material"`
-	Transform nomath.SerializableTransform `json:"transform"`
-	IsVisible bool                         `json:"IsVisible"`
+	ID          string                       `json:"id"`
+	Name        string                       `json:"name"`
+	OBJPath     string                       `json:"obj_path"`
+	Material    lookdev.SerializableMaterial `json:"material"`
+	Transform   nomath.SerializableTransform `json:"transform"`
+	IsVisible   bool                         `json:"IsVisible"`
+	SoftNormals bool                         `json:"IsViSoftNormalssible"`
 }
 
 // --- Transform Conversion ---
@@ -160,8 +161,9 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 				Reflectivity:   geom.Material.Reflectivity,
 				NormalStrength: geom.Material.NormalStrength,
 			},
-			Transform: geom.Transform.ToSerializable(),
-			IsVisible: geom.IsVisible,
+			Transform:   geom.Transform.ToSerializable(),
+			IsVisible:   geom.IsVisible,
+			SoftNormals: geom.SoftNormals,
 		}
 
 		if geom.Material.DiffuseTexture != nil {
@@ -250,6 +252,7 @@ func (a *Assembly) LoadAssembly(path string) {
 
 		geom.ID = sGeom.ID
 		geom.Name = sGeom.Name
+		geom.SoftNormals = sGeom.SoftNormals
 		geom.Material = &lookdev.Material{
 			Name:           sGeom.Material.Name,
 			DiffuseColor:   sGeom.Material.DiffuseColor,

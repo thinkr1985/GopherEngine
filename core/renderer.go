@@ -51,7 +51,7 @@ func NewRenderer3D() *Renderer3D {
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 
-		FogEnabled:    false,
+		FogEnabled:    true,
 		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity:    0.05,
 		FogStart:      5.0,
@@ -349,6 +349,7 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.
 			screenVerts[i] = clipVerts[i].ToVec3()
 		}
 		r.rasterizeTriangle(modelMatrix, screenVerts, tri, lights, camera)
+		scene.DrawnTriangles++
 		return
 	}
 
@@ -382,6 +383,7 @@ func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.
 	if len(newVerts) < 3 {
 		return // degenerate
 	}
+	scene.DrawnTriangles++
 	if len(newVerts) == 3 {
 		r.rasterizeTriangle(modelMatrix, [3]nomath.Vec3{newVerts[0], newVerts[1], newVerts[2]}, tri, lights, camera)
 	} else if len(newVerts) == 4 {
@@ -742,15 +744,13 @@ func (r *Renderer3D) calculateLighting(
 	u, v, w float64,
 ) *lookdev.ColorRGBA {
 	// Get base color from texture or material
+	uv := tri.InterpolatedUV(u, v, w)
 	baseColor := *lookdev.NewColorRGBA()
-	baseColor.R = 0
-	baseColor.G = 0
-	baseColor.B = 0
-	baseColor.A = 1
-
 	if tri.HasTexture {
-		uv := tri.InterpolatedUV(u, v, w)
+
 		baseColor = tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
+	} else {
+		baseColor = tri.Material.DiffuseColor
 	}
 
 	// Early exit if fully transparent
@@ -764,46 +764,57 @@ func (r *Renderer3D) calculateLighting(
 
 	// Get interpolated normal
 	worldNormal := tri.WorldNormal
-	// worldNormal := modelMatrix.Inverse().Transpose().TransformVec3(
-	// 	tri.InterpolatedNormal(u, v, w),
-	// ).Normalize()
+	if tri.Parent.SoftNormals {
+		worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(
+			tri.InterpolatedNormal(u, v, w),
+		)
+	}
 
 	// Apply normal mapping if available
 	if tri.Material.NormalTexture != nil && tri.UV0 != nil && tri.UV1 != nil && tri.UV2 != nil {
-		uv := tri.InterpolatedUV(u, v, w)
 		normalMapValue := tri.Material.NormalTexture.Sample(uv.U, uv.V)
-
-		// Convert normal from [0,1] to [-1,1] range
 		tangentNormal := nomath.Vec3{
-			X: (float64(normalMapValue.R) / 127.5) - 1.0,
-			Y: (float64(normalMapValue.G) / 127.5) - 1.0,
-			Z: (float64(normalMapValue.B) / 127.5) - 1.0,
-		}.Normalize()
+			X: (float64(normalMapValue.R)/127.5 - 1.0),
+			Y: (float64(normalMapValue.G)/127.5 - 1.0),
+			Z: (float64(normalMapValue.B)/127.5 - 1.0),
+		}.Normalize().Multiply(tri.Material.NormalStrength)
 
-		// Scale by normal strength
-		NormalStrength := 1.0
-		tangentNormal = tangentNormal.Multiply(NormalStrength)
-
-		// Calculate tangent space basis
 		tangent, bitangent := r.calculateTangentBasis(tri, modelMatrix)
-
-		// Transform normal from tangent space to world space
 		tbn := nomath.Mat3FromVectors(tangent, bitangent, worldNormal)
 		worldNormal = tbn.MultiplyVec3(tangentNormal).Normalize()
 	}
 
-	// Initialize lighting accumulators
-	diffuseR, diffuseG, diffuseB := 0.0, 0.0, 0.0
-	specularR, specularG, specularB := 0.0, 0.0, 0.0
+	// Initialize lighting with ambient
+	ambientStrength := 0.1
+	diffuseR := float64(baseColor.R) * ambientStrength
+	diffuseG := float64(baseColor.G) * ambientStrength
+	diffuseB := float64(baseColor.B) * ambientStrength
+
+	specularR := 0.0
+	specularG := 0.0
+	specularB := 0.0
+
+	// Normalize view direction
+	// viewDir = viewDir.Normalize()
+	// worldNormal = worldNormal.Normalize()
 
 	// Process each light
-	for light_index, light := range lights {
+	for i, light := range lights {
 		if light.Intensity <= 0.001 {
 			continue
 		}
+		lightDir := r.precomputedLightDirs[i]
+		// Calculate light direction and distance
+		var dist float64
+		if light.Type == LightTypeDirectional || light.Type == LightTypeSun {
+			dist = 1.0 // Directional lights have infinite distance
+		} else {
+			lightDir = light.Transform.Position.Subtract(fragmentPos)
+			dist = lightDir.Length()
+			lightDir = lightDir.Normalize()
+		}
 
-		lightDir := r.precomputedLightDirs[light_index]
-		dist := lightDir.Length()
+		// Calculate attenuation
 		attenuation := 1.0 / (1.0 + light.Attenuation*dist*dist)
 
 		// Calculate shadow factor
@@ -814,30 +825,34 @@ func (r *Renderer3D) calculateLighting(
 			}
 		}
 
-		// Flip normal if backface
-		normal := worldNormal
-		if normal.Dot(lightDir) < 0 {
-			normal = normal.Negate()
+		// Flip normal if backface (only for two-sided lighting)
+		if worldNormal.Dot(lightDir) < 0 {
+			worldNormal = worldNormal.Negate()
 		}
 
-		// Diffuse
-		diff := max(0.0, normal.Dot(lightDir)) * attenuation * (1.0 - shadowFactor)
-		diffuseR += float64(light.Color.R) * diff * light.Intensity
-		diffuseG += float64(light.Color.G) * diff * light.Intensity
-		diffuseB += float64(light.Color.B) * diff * light.Intensity
-		// Specular
-		halfVec := lightDir.Add(viewDir).Normalize()
-		specAngle := max(0.0, normal.Dot(halfVec))
-		spec := math.Pow(specAngle, tri.Material.Shininess) * attenuation * (1.0 - shadowFactor)
+		// Diffuse lighting
+		diff := max(0.0, worldNormal.Dot(lightDir)) * (1.0 - shadowFactor)
+		diffuseR += (float64(light.Color.R) * diff * attenuation * light.Intensity * float64(baseColor.R) / 255.0)
+		diffuseG += (float64(light.Color.G) * diff * attenuation * light.Intensity * float64(baseColor.G) / 255.0)
+		diffuseB += (float64(light.Color.B) * diff * attenuation * light.Intensity * float64(baseColor.B) / 255.0)
 
-		specularR += float64(light.Color.R) * spec * light.Intensity
-		specularG += float64(light.Color.G) * spec * light.Intensity
-		specularB += float64(light.Color.B) * spec * light.Intensity
+		// Specular (Blinn-Phong)
+		if diff > 0 {
+			halfVec := lightDir.Add(viewDir).Normalize()
+			specAngle := max(0.0, worldNormal.Dot(halfVec))
+			spec := math.Pow(specAngle, tri.Material.Shininess) * attenuation * (1.0 - shadowFactor)
+
+			// Use material's specular color and light color
+			specularR += float64(tri.Material.SpecularColor.R) * float64(light.Color.R) * spec * light.Intensity / 255.0
+			specularG += float64(tri.Material.SpecularColor.G) * float64(light.Color.G) * spec * light.Intensity / 255.0
+			specularB += float64(tri.Material.SpecularColor.B) * float64(light.Color.B) * spec * light.Intensity / 255.0
+		}
 	}
-	// Combine base color and lighting
-	rFinal := clampColor(float64(baseColor.R) + diffuseR + specularR)
-	gFinal := clampColor(float64(baseColor.G) + diffuseG + specularG)
-	bFinal := clampColor(float64(baseColor.B) + diffuseB + specularB)
+
+	// Combine and clamp results
+	rFinal := clampColor(diffuseR + specularR)
+	gFinal := clampColor(diffuseG + specularG)
+	bFinal := clampColor(diffuseB + specularB)
 
 	return &lookdev.ColorRGBA{
 		R: rFinal,
@@ -951,16 +966,6 @@ func (r *Renderer3D) applyFog(color lookdev.ColorRGBA, distance float64) lookdev
 	}
 }
 
-func clamp(value, min, max float64) float64 {
-	if value < min {
-		return min
-	}
-	if value > max {
-		return max
-	}
-	return value
-}
-
 func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 	if len(r.precomputedLightDirs) != len(s.Lights) {
 		r.precomputedLightDirs = make([]nomath.Vec3, len(s.Lights))
@@ -975,15 +980,6 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		LightVp := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
 		light.LightVp = (*nomath.Mat4)(&LightVp)
 	}
-}
-
-// Helper functions
-func min3(a, b, c int) int {
-	return min(a, min(b, c))
-}
-
-func max3(a, b, c int) int {
-	return max(a, max(b, c))
 }
 
 func (r *Renderer3D) calculateTangentBasis(tri *assets.Triangle, modelMatrix *nomath.Mat4) (nomath.Vec3, nomath.Vec3) {
@@ -1147,4 +1143,23 @@ func (r *Renderer3D) calculateBlurAmount(depth float64) float64 {
 	// Calculate blur amount (0-1) based on distance from focus range
 	blurAmount := (distanceFromFocus - r.DOFFocusRange) / (1.0 - r.DOFFocusRange)
 	return math.Min(blurAmount, 1.0)
+}
+
+// Helper functions
+func min3(a, b, c int) int {
+	return min(a, min(b, c))
+}
+
+func max3(a, b, c int) int {
+	return max(a, max(b, c))
+}
+
+func clamp(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }

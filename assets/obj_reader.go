@@ -33,6 +33,7 @@ func LoadOBJ(filepath string) (*Geometry, error) {
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial(geomName + "_material"),
 		IsVisible:   true,
+		SoftNormals: true,
 	}
 	geom.Transform.Dirty = true
 	var vertices []nomath.Vec3

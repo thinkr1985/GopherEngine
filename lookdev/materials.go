@@ -19,9 +19,9 @@ func NewMaterial(name string) *Material {
 		Name: name,
 		// DiffuseColor:   ColorRGBA{R: 180, G: 180, B: 180, A: 1.0},
 		DiffuseColor:   ColorRGBA{R: 255, G: 255, B: 255, A: 1.0},
-		SpecularColor:  ColorRGBA{R: 0, G: 0, B: 0, A: 1},
+		SpecularColor:  ColorRGBA{R: 255, G: 255, B: 255, A: 1},
 		Transparency:   1.0,
-		Shininess:      0.0,
+		Shininess:      20.0,
 		Reflectivity:   0.0,
 		NormalStrength: 1.0,
 	}

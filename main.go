@@ -27,7 +27,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load OBJ file: %v", err)
 	}
-	plane.Material.Shininess = 0.0
+	plane.Material.Shininess = 128
+	plane.Material.Reflectivity = 0.5
 	plane.Name = "PoliceCarMesh"
 
 	// ground_tex, err := lookdev.LoadTexture("textures/CarBTexture.png")

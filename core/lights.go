@@ -49,8 +49,8 @@ func NewPointLight(s *Scene) *Light {
 	s.Lights = append(s.Lights, l)
 	// making light color a white.
 	l.Color.R = 255
-	l.Color.G = 239
-	l.Color.B = 222
+	l.Color.G = 255
+	l.Color.B = 255
 	l.Transform.UpdateModelMatrix()
 	l.InitShadowMap(1024, 1024)
 	return l
@@ -89,7 +89,7 @@ func NewSunLight(s *Scene) *Light {
 		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypeSun,
-		Shadows:     false,
+		Shadows:     true,
 	}
 	s.Lights = append(s.Lights, l)
 	// making light color a white.
@@ -130,7 +130,7 @@ func (l *Light) GetDirection() nomath.Vec3 {
 }
 
 func (l *Light) String() string {
-	return fmt.Sprintf("Light(%s, %s)", l.Name, l.Type)
+	return fmt.Sprintf("Light(%v, %v)", l.Name, l.Type)
 }
 
 func (l *Light) Update() {

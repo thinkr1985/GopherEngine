@@ -27,15 +27,16 @@ type PackedTriangle struct {
 }
 
 type PackedGeometry struct {
-	ID        string
-	Name      string
-	IsVisible bool
-	Vertices  []*nomath.Vec3
-	Normals   []*nomath.Vec3
-	UVs       []*nomath.Vec2
-	Triangles []PackedTriangle
-	Material  lookdev.SerializableMaterial
-	Transform nomath.SerializableTransform
+	ID          string
+	Name        string
+	IsVisible   bool
+	Vertices    []*nomath.Vec3
+	Normals     []*nomath.Vec3
+	UVs         []*nomath.Vec2
+	Triangles   []PackedTriangle
+	Material    lookdev.SerializableMaterial
+	Transform   nomath.SerializableTransform
+	SoftNormals bool
 }
 
 type PackedAssembly struct {
@@ -72,13 +73,14 @@ func AssetExport(assembly *Assembly, path string) error {
 		}
 
 		packedGeo := PackedGeometry{
-			ID:        geom.ID,
-			IsVisible: geom.IsVisible,
-			Name:      geom.Name,
-			Vertices:  geom.Vertices,
-			Normals:   geom.Normals,
-			UVs:       geom.UVs,
-			Triangles: packedTris,
+			ID:          geom.ID,
+			IsVisible:   geom.IsVisible,
+			Name:        geom.Name,
+			Vertices:    geom.Vertices,
+			Normals:     geom.Normals,
+			UVs:         geom.UVs,
+			Triangles:   packedTris,
+			SoftNormals: geom.SoftNormals,
 			Material: lookdev.SerializableMaterial{
 				Name:           geom.Material.Name,
 				DiffuseColor:   geom.Material.DiffuseColor,
@@ -227,14 +229,15 @@ func AssetImport(path string) (*Assembly, error) {
 		}
 
 		geom := &Geometry{
-			ID:        g.ID,
-			Name:      g.Name,
-			Vertices:  g.Vertices,
-			Normals:   g.Normals,
-			UVs:       g.UVs,
-			Triangles: tris,
-			IsVisible: g.IsVisible,
-			Transform: FromSerializableTransform(g.Transform),
+			ID:          g.ID,
+			Name:        g.Name,
+			Vertices:    g.Vertices,
+			Normals:     g.Normals,
+			UVs:         g.UVs,
+			Triangles:   tris,
+			IsVisible:   g.IsVisible,
+			SoftNormals: g.SoftNormals,
+			Transform:   FromSerializableTransform(g.Transform),
 		}
 		if geom.Transform == nil {
 			geom.Transform = nomath.NewTransform()

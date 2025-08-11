@@ -7,7 +7,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
-	"sync/atomic"
+	// "sync/atomic"
 )
 
 var UNIQUE_NAMES []string
@@ -124,6 +124,7 @@ func (s *Scene) LoadAssembly(assembly_path string) {
 }
 
 func (s *Scene) RenderScene() {
+	s.TotalTriangleCounter = 0
 	s.DrawnTriangles = 0
 	s.UpdateScene()
 
@@ -155,6 +156,7 @@ func (s *Scene) RenderScene() {
 
 	// Precompute light dot normal per triangle
 	for _, assembly := range s.Assemblies {
+		s.TotalTriangleCounter += int32(len(assembly.Triangles))
 		if !assembly.IsVisible {
 			continue
 		}
@@ -191,7 +193,7 @@ func (s *Scene) RenderScene() {
 				}
 
 				s.Renderer.RenderTriangle(&mvpMatrix, &modelMatrix, s.Camera, triangle, s.Lights, s)
-				s.DrawnTriangles++
+
 			}
 		}
 	}
@@ -200,7 +202,9 @@ func (s *Scene) RenderScene() {
 func (s *Scene) RenderOnThreads() {
 	// First update all scene elements and matrices
 	s.UpdateScene()
-	atomic.StoreInt32(&s.DrawnTriangles, 0)
+	s.DrawnTriangles = 0
+	s.TotalTriangleCounter = 0
+	// atomic.StoreInt32(&s.DrawnTriangles, 0)
 
 	// Update and cache matrices with write lock
 	s.matrixMutex.Lock()
@@ -254,12 +258,13 @@ func (s *Scene) RenderOnThreads() {
 				s.Renderer.RenderTriangle(&task.MVP, &task.ModelMatrix, s.Camera, tri, s.Lights, s)
 				localCount++
 			}
-			atomic.AddInt32(&s.DrawnTriangles, localCount)
+			// atomic.AddInt32(&s.DrawnTriangles, localCount)
 		}()
 	}
 
 	// Traverse scene and stream triangles to workers
 	for _, assembly := range s.Assemblies {
+		s.TotalTriangleCounter += int32(len(assembly.Triangles))
 		if !assembly.IsVisible {
 			continue
 		}
