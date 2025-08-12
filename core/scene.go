@@ -82,10 +82,16 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-	s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
-	s.DefaultLight.Transform.Dirty = true
+	// s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
+	// s.DefaultLight.Transform.Dirty = true
+	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
+	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
+	// s.Camera.DirtyFrustum = true
+	// s.Camera.Transform.Dirty = true
+	s.matrixMutex.Lock()
 	s.Camera.Update()
+	s.matrixMutex.Unlock()
 
 	// Update lights
 	for _, light := range s.Lights {
@@ -131,15 +137,8 @@ func (s *Scene) RenderScene() {
 	// Drawing scene elements first!
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
 
-	// Rendering a scene
-	s.matrixMutex.Lock()
-	s.cachedViewMatrix = s.Camera.GetViewMatrix()
-	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
-	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
-	s.matrixMutex.Unlock()
-
 	viewDir := s.Camera.Transform.GetForward()
-	viewProjMatrix := s.cachedViewProjMatrix
+	viewProjMatrix := s.Camera.cachedViewProjMatrix
 
 	// Clear shadow map
 
@@ -207,11 +206,11 @@ func (s *Scene) RenderOnThreads() {
 	// atomic.StoreInt32(&s.DrawnTriangles, 0)
 
 	// Update and cache matrices with write lock
-	s.matrixMutex.Lock()
-	s.cachedViewMatrix = s.Camera.GetViewMatrix()
-	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
-	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
-	s.matrixMutex.Unlock()
+	// s.matrixMutex.Lock()
+	// s.cachedViewMatrix = s.Camera.GetViewMatrix()
+	// s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
+	// s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
+	// s.matrixMutex.Unlock()
 
 	// Clear shadow maps
 	for _, light := range s.Lights {
@@ -275,7 +274,7 @@ func (s *Scene) RenderOnThreads() {
 			}
 
 			modelMatrix := geom.Transform.GetMatrix()
-			mvpMatrix := s.cachedViewProjMatrix.Multiply(modelMatrix)
+			mvpMatrix := s.Camera.cachedViewProjMatrix.Multiply(modelMatrix)
 			normalMatrix := modelMatrix.Inverse().Transpose()
 
 			for _, tri := range geom.Triangles {

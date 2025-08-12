@@ -49,6 +49,15 @@ func HandleInputEvents(scene *core.Scene) {
 		handleWindowResize(scene)
 	}
 
+	if rl.IsKeyPressed(rl.KeyF2) {
+		if display_debug_screen {
+			display_debug_screen = false
+		} else {
+			display_debug_screen = true
+		}
+
+	}
+
 	if rl.IsWindowReady() {
 		HandleKeyboardEvents(scene)
 		HandleMouseEvents(scene)
@@ -56,60 +65,80 @@ func HandleInputEvents(scene *core.Scene) {
 }
 
 func HandleKeyboardEvents(scene *core.Scene) {
-	moveSpeed := 1.5 // Never use value below 1.0
+	moveSpeed := 1.5
 	rotateSpeed := 0.02
 
 	// Get camera vectors (note these are in world space)
-	forward := scene.Camera.Transform.GetForward() // Points toward camera's view direction
-	right := scene.Camera.Transform.GetRight()     // Points to camera's right
+	forward := scene.Camera.Transform.GetForward()
+	right := scene.Camera.Transform.GetRight()
+	up := scene.Camera.Transform.GetUp()
 
-	// Movement controls - FINAL CORRECT VERSION
+	// Movement controls
 	if rl.IsKeyDown(rl.KeyW) {
-		// Move in camera's forward direction (use positive forward vector)
 		scene.Camera.Transform.Translate(forward.Multiply(moveSpeed))
 		currentKeyboardImage = "W"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyS) {
-		// Move in camera's backward direction
 		scene.Camera.Transform.Translate(forward.Multiply(-moveSpeed))
 		currentKeyboardImage = "S"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyA) {
-		// Move left (negative right vector)
 		scene.Camera.Transform.Translate(right.Multiply(-moveSpeed))
 		currentKeyboardImage = "A"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyD) {
-		// Move right (positive right vector)
 		scene.Camera.Transform.Translate(right.Multiply(moveSpeed))
 		currentKeyboardImage = "D"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
+	}
+	if rl.IsKeyDown(rl.KeyQ) {
+		scene.Camera.Transform.Translate(up.Multiply(-moveSpeed))
+		currentKeyboardImage = "Q"
+		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
+	}
+	if rl.IsKeyDown(rl.KeyE) {
+		scene.Camera.Transform.Translate(up.Multiply(moveSpeed))
+		currentKeyboardImage = "E"
+		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 
-	// Rotation controls (unchanged)
+	// Rotation controls
 	if rl.IsKeyDown(rl.KeyRight) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: -rotateSpeed})
 		currentKeyboardImage = "arrowRight"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyLeft) {
 		scene.Camera.Transform.Rotate(nomath.Vec3{Y: rotateSpeed})
 		currentKeyboardImage = "arrowLeft"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyUp) {
+		scene.Camera.Transform.Rotate(nomath.Vec3{X: -rotateSpeed})
 		currentKeyboardImage = "upArrow"
+		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeyDown) {
+		scene.Camera.Transform.Rotate(nomath.Vec3{X: rotateSpeed})
 		currentKeyboardImage = "downArrow"
+		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 	if rl.IsKeyDown(rl.KeySpace) {
 		currentKeyboardImage = "space"
 	}
-
 }
 
 func HandleMouseEvents(scene *core.Scene) {
@@ -132,6 +161,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		scene.Camera.Transform.Translate(pan)
 		currentKeyboardImage = "scroll"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 
 	// --- Scroll to zoom ---
@@ -142,22 +172,27 @@ func HandleMouseEvents(scene *core.Scene) {
 		scene.Camera.Transform.Translate(forward)
 		currentKeyboardImage = "scroll"
 		scene.Camera.DirtyFrustum = true
+		scene.Camera.Transform.Dirty = true
 	}
 
 	// --- Left drag to rotate around Y axis ---
 	if rl.IsMouseButtonDown(rl.MouseLeftButton) {
 		rotationSpeed := 0.002
-		angle := -float64(delta.X) * rotationSpeed
-		scene.Camera.Transform.Rotate(nomath.Vec3{Y: angle})
+		scene.Camera.Transform.Rotate(nomath.Vec3{
+			Y: -float64(delta.X) * rotationSpeed,
+			X: -float64(delta.Y) * rotationSpeed,
+		})
+		scene.Camera.Transform.Dirty = true
+		scene.Camera.Transform.Dirty = true
 		currentKeyboardImage = "leftMouse"
 	}
 	if rl.IsMouseButtonDown(rl.MouseRightButton) {
-
 		currentKeyboardImage = "rightMouse"
 	}
 
 	lastMousePos = mousePos
 }
+
 func handleWindowResize(scene *core.Scene) {
 	if !rl.IsWindowReady() {
 		return
@@ -166,6 +201,7 @@ func handleWindowResize(scene *core.Scene) {
 	newWidth := max(300, int(rl.GetScreenWidth()))
 	newHeight := max(200, int(rl.GetScreenHeight()))
 
+	// Only resize if dimensions actually changed
 	// Update global dimensions
 	core.SCREEN_WIDTH = newWidth
 	core.SCREEN_HEIGHT = newHeight
@@ -182,8 +218,5 @@ func handleWindowResize(scene *core.Scene) {
 	scene.Renderer.Resize(renderWidth, renderHeight)
 
 	// Update camera projection
-	scene.Camera.FocalLength = int(float64(scene.Camera.FocalLength) *
-		float64(newWidth) / float64(core.SCREEN_WIDTH))
-	scene.Camera.Transform.UpdateModelMatrix()
-	scene.Camera.UpdateFrustumPlanes()
+	scene.Camera.Update() // This will update the projection matrix
 }

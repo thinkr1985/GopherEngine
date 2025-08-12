@@ -51,7 +51,7 @@ func NewRenderer3D() *Renderer3D {
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 
-		FogEnabled:    true,
+		FogEnabled:    false,
 		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity:    0.05,
 		FogStart:      5.0,
@@ -70,6 +70,7 @@ func NewRenderer3D() *Renderer3D {
 	r.CPU = utilities.GetCPU()
 	r.GPU = utilities.GetGPU()
 	// Init buffers
+	// Initialize buffers with current SCREEN_WIDTH/HEIGHT
 	for y := 0; y < SCREEN_HEIGHT; y++ {
 		r.Framebuffer[y] = make([]lookdev.ColorRGBA, SCREEN_WIDTH)
 		r.DepthBuffer[y] = make([]float32, SCREEN_WIDTH)
@@ -77,6 +78,7 @@ func NewRenderer3D() *Renderer3D {
 			r.DepthBuffer[y][x] = math.MaxFloat32
 		}
 	}
+
 	r.shadowOffsets4 = [4]struct{ x, y float64 }{
 		{-0.5, -0.5},
 		{0.5, -0.5},
@@ -102,26 +104,23 @@ func (r *Renderer3D) Resize(width, height int) {
 	defer r.bufferMutex.Unlock()
 
 	// Ensure minimum size
-	width = max(1, width)
-	height = max(1, height)
+	width = max(300, width)
+	height = max(200, height)
 
-	// Create new framebuffer
-	newFramebuffer := make([][]lookdev.ColorRGBA, height)
-	for y := 0; y < height; y++ {
-		newFramebuffer[y] = make([]lookdev.ColorRGBA, width)
-	}
-
-	// Create new depth buffer
+	// Create new buffers
 	newDepthBuffer := make([][]float32, height)
+	newFramebuffer := make([][]lookdev.ColorRGBA, height)
+	r.DOFTempBuffer = make([][]lookdev.ColorRGBA, height)
+
 	for y := 0; y < height; y++ {
+		// new frame buffer
+		newFramebuffer[y] = make([]lookdev.ColorRGBA, width)
+		//new depth buffer
 		newDepthBuffer[y] = make([]float32, width)
 		for x := 0; x < width; x++ {
 			newDepthBuffer[y][x] = math.MaxFloat32
 		}
-	}
-	// Resize DOF temp buffer
-	r.DOFTempBuffer = make([][]lookdev.ColorRGBA, height)
-	for y := 0; y < height; y++ {
+		// create DOF temp buffer
 		r.DOFTempBuffer[y] = make([]lookdev.ColorRGBA, width)
 	}
 

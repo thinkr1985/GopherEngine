@@ -14,8 +14,10 @@ import (
 var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
 var isFirstFrame = true
+var display_debug_screen = false
 
 func initWindow() {
+
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -34,13 +36,21 @@ func Window(scene *core.Scene) {
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
-	// Initialize resolution scaling
+	// Initialize resolution scaling with proper window dimensions
 	scene.ResolutionScale = 1.0
 	scene.AutoResolution = false
 	scene.LastFPS = 60
 	scene.MinResolutionScale = 0.5
 	scene.LastScaleChange = rl.GetTime()
 	scene.FPSHistory = make([]int, 0, 10)
+
+	// Get initial window size and set up renderer
+	initialWidth := max(300, int(rl.GetScreenWidth()))
+	initialHeight := max(200, int(rl.GetScreenHeight()))
+	core.SCREEN_WIDTH = initialWidth
+	core.SCREEN_HEIGHT = initialHeight
+
+	// Initialize renderer with correct size
 
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
@@ -54,14 +64,14 @@ func Window(scene *core.Scene) {
 	defer rl.UnloadTexture(fullResTex)
 
 	// Start with a 1x1 black texture
-	initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
-	fullResTex = rl.LoadTextureFromImage(&rl.Image{
-		Data:    unsafe.Pointer(&initialPixels[0]),
-		Width:   1,
-		Height:  1,
-		Mipmaps: 1,
-		Format:  rl.PixelFormat(7),
-	})
+	// initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
+	// fullResTex = rl.LoadTextureFromImage(&rl.Image{
+	// 	Data:    unsafe.Pointer(&initialPixels[0]),
+	// 	Width:   1,
+	// 	Height:  1,
+	// 	Mipmaps: 1,
+	// 	Format:  rl.PixelFormat(7),
+	// })
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -89,7 +99,7 @@ func Window(scene *core.Scene) {
 		HandleInputEvents(scene)
 
 		// Render 3D
-		scene.RenderOnThreads()
+		scene.RenderScene()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -175,6 +185,9 @@ func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
 }
 
 func draw_debug_stats(scene *core.Scene) {
+	if !display_debug_screen {
+		return
+	}
 	avgFPS := 0
 	if len(scene.FPSHistory) > 0 {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
@@ -204,6 +217,9 @@ func draw_debug_stats(scene *core.Scene) {
 }
 
 func drawKeyboardOverlay(tex rl.Texture2D) {
+	if !display_debug_screen {
+		return
+	}
 	x := 20
 	y := rl.GetScreenHeight() - int(tex.Height) - 20
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)

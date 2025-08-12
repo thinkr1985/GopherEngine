@@ -3,12 +3,15 @@ package assets
 import (
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"fmt"
 	"math"
 )
 
 type Triangle struct {
-	Parent   *Geometry // Reference to parent geometry
-	Material *lookdev.Material
+	Parent      *Geometry // Reference to parent geometry
+	Material    *lookdev.Material
+	Transform   *nomath.Transform
+	BoundingBox *nomath.BoundingBox
 
 	V0              *nomath.Vec3 // Vertex positions
 	V1              *nomath.Vec3 // Vertex positions
@@ -39,6 +42,8 @@ func NewTriangle(
 	}
 
 	tri := &Triangle{
+		Transform:      nomath.NewTransform(),
+		BoundingBox:    nomath.NewBoundingBox(),
 		Parent:         geometry,
 		Material:       material,
 		V0:             v0,
@@ -54,8 +59,23 @@ func NewTriangle(
 		SpecularBuffer: nil,
 		BufferCache:    false,
 	}
+	tri.Transform.Dirty = true
+	tri.ComputeBoundingBox()
 	return tri
 }
+
+func (t *Triangle) Update() {
+	fmt.Println("**************************************************")
+	if t.Transform.Dirty {
+
+		t.Transform.Mutex.Lock()
+		defer t.Transform.Mutex.Unlock()
+		t.Transform.UpdateModelMatrix()
+		t.ComputeTransformedBoundingBox()
+		t.Transform.Dirty = false
+	}
+}
+
 func (t *Triangle) Centroid() nomath.Vec3 {
 	return (*t.V0).Add(*t.V1).Add(*t.V2).Multiply(1.0 / 3.0)
 }
@@ -140,4 +160,68 @@ func (t *Triangle) PreComputeBuffers() {
 	}
 
 	t.BufferCache = true
+}
+
+func (t *Triangle) ComputeBoundingBox() {
+	// Start with V0
+	min := *t.V0
+	max := *t.V0
+
+	// Helper function to expand min/max with a vertex
+	expand := func(v *nomath.Vec3) {
+		if v.X < min.X {
+			min.X = v.X
+		}
+		if v.Y < min.Y {
+			min.Y = v.Y
+		}
+		if v.Z < min.Z {
+			min.Z = v.Z
+		}
+		if v.X > max.X {
+			max.X = v.X
+		}
+		if v.Y > max.Y {
+			max.Y = v.Y
+		}
+		if v.Z > max.Z {
+			max.Z = v.Z
+		}
+	}
+
+	// Expand with remaining vertices
+	expand(t.V1)
+	expand(t.V2)
+
+	t.BoundingBox = &nomath.BoundingBox{
+		Min: min,
+		Max: max,
+	}
+}
+
+func (t *Triangle) ComputeTransformedBoundingBox() {
+	if t.V0 == nil || t.V1 == nil || t.V2 == nil {
+		return
+	}
+
+	transform := t.Transform.GetMatrix()
+
+	// Transform first vertex
+	first := transform.MultiplyVec4(t.V0.ToVec4(1)).ToVec3()
+	min := first
+	max := first
+
+	// Transform and expand with remaining vertices
+	v1t := transform.MultiplyVec4(t.V1.ToVec4(1)).ToVec3()
+	min = nomath.Min(min, v1t)
+	max = nomath.Max(max, v1t)
+
+	v2t := transform.MultiplyVec4(t.V2.ToVec4(1)).ToVec3()
+	min = nomath.Min(min, v2t)
+	max = nomath.Max(max, v2t)
+
+	t.BoundingBox = &nomath.BoundingBox{
+		Min: min,
+		Max: max,
+	}
 }
