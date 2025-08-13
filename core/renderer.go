@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"runtime"
 	"sync"
 )
 
@@ -588,89 +589,65 @@ func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
 }
 
 func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
-	// Quick-outs
 	if !light.Shadows || light.ShadowMap == nil {
 		return false
 	}
 
 	lightVP := light.LightVp
-	// Transform fragment position into light clip space and then NDC
 	lightClip := lightVP.MultiplyVec4(pos.ToVec4(1.0))
 
-	// Cull if behind the light (w <= 0)
 	if lightClip.W <= 0.0 {
 		return false
 	}
 
 	ndc := lightClip.Divide(lightClip.W).ToVec3()
-
-	// Convert NDC to shadow-map UV [0,1]
 	u := (ndc.X + 1.0) * 0.5
-	v := (1.0 - ndc.Y) * 0.5 // NOTE: your earlier code used (1 - (ndc.Y+1)*0.5) which equals this
+	v := (1.0 - ndc.Y) * 0.5
 
-	// Quick reject if outside shadow map
 	if u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0 {
 		return false
 	}
 
 	smW := float64(light.ShadowMap.Width)
 	smH := float64(light.ShadowMap.Height)
-
-	// Convert to texel space (floating)
 	texX := u * (smW - 1.0)
 	texY := v * (smH - 1.0)
 
-	// Fragment depth in light NDC space to [0..1]
 	fragDepth := (ndc.Z + 1.0) * 0.5
-
-	// Simple constant bias (fast). If you want angle-based bias,
-	// compute it outside this function and pass or store it per-fragment.
-	const bias = 0.0015
+	bias := 0.005 // Increased bias to reduce shadow acne
 	fragDepth -= bias
 
-	// PCF: 4-sample box / bilinear-like sampling (fast)
+	// Improved PCF (Percentage Closer Filtering) with 9 samples
 	texelSizeX := 1.0 / smW
 	texelSizeY := 1.0 / smH
+	shadow := 0.0
+	radius := 1.5 // Filter radius
 
-	// bounds clamp helper inline
-	clampTex := func(ix int, iy int) (int, int) {
-		if ix < 0 {
-			ix = 0
-		} else if ix >= light.ShadowMap.Width {
-			ix = light.ShadowMap.Width - 1
-		}
-		if iy < 0 {
-			iy = 0
-		} else if iy >= light.ShadowMap.Height {
-			iy = light.ShadowMap.Height - 1
-		}
-		return ix, iy
-	}
+	for dy := -radius; dy <= radius; dy += radius {
+		for dx := -radius; dx <= radius; dx += radius {
+			sx := texX + dx*texelSizeX
+			sy := texY + dy*texelSizeY
 
-	var shadowCount float64
-	// Use the precomputed small offset array (4 taps)
-	for i := 0; i < 4; i++ {
-		offset := r.shadowOffsets4[i]
-		sx := texX + offset.x*texelSizeX
-		sy := texY + offset.y*texelSizeY
+			ix := int(math.Floor(sx + 0.5))
+			iy := int(math.Floor(sy + 0.5))
 
-		ix := int(math.Floor(sx + 0.5))
-		iy := int(math.Floor(sy + 0.5))
-		ix, iy = clampTex(ix, iy)
+			// Clamp to shadow map bounds
+			ix = max(0, min(ix, light.ShadowMap.Width-1))
+			iy = max(0, min(iy, light.ShadowMap.Height-1))
 
-		depth := light.ShadowMap.Depth[iy][ix]
-		// If stored depth is max (meaning nothing rendered) treat as lit
-		if depth == math.MaxFloat64 {
-			// skip increment
-		} else {
+			depth := light.ShadowMap.Depth[iy][ix]
+			if depth == math.MaxFloat64 {
+				continue // No geometry here
+			}
 			if fragDepth > depth {
-				shadowCount += 1.0
+				shadow += 1.0
 			}
 		}
 	}
 
-	// If majority samples are occluded -> in shadow
-	return (shadowCount / 4.0) > 0.5
+	// Normalize and apply threshold
+	shadow /= 9.0
+	return shadow > 0.5
 }
 
 func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
@@ -678,10 +655,48 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		return
 	}
 
-	// Get light view-projection matrix
-	lightVP := light.LightVp
+	// Clear shadow map in parallel
+	var wg sync.WaitGroup
+	numWorkers := runtime.NumCPU()
+	rowsPerWorker := light.ShadowMap.Height / numWorkers
 
-	// Render all triangles from light's perspective
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		startRow := i * rowsPerWorker
+		endRow := startRow + rowsPerWorker
+		if i == numWorkers-1 {
+			endRow = light.ShadowMap.Height // Last worker gets remaining rows
+		}
+
+		go func(start, end int) {
+			defer wg.Done()
+			for y := start; y < end; y++ {
+				for x := 0; x < light.ShadowMap.Width; x++ {
+					light.ShadowMap.Depth[y][x] = math.MaxFloat64
+				}
+			}
+		}(startRow, endRow)
+	}
+	wg.Wait()
+
+	// Create worker pool for rendering triangles
+	workChan := make(chan *assets.Triangle, 1024)
+	var renderWg sync.WaitGroup
+	renderWg.Add(numWorkers)
+
+	// Worker function for rendering shadow triangles
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			defer renderWg.Done()
+			for tri := range workChan {
+				modelMatrix := tri.Parent.Transform.GetMatrix()
+				mvpMatrix := light.LightVp.Multiply(modelMatrix)
+				r.renderShadowTriangle(&mvpMatrix, tri, light)
+			}
+		}()
+	}
+
+	// Feed triangles to workers
 	for _, assembly := range scene.Assemblies {
 		if !assembly.IsVisible {
 			continue
@@ -690,79 +705,18 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		for _, geom := range assembly.Geometries {
 			if !scene.Camera.IsVisible(geom.BoundingBox) || !geom.IsVisible {
 				continue
-
 			}
+
 			for _, triangle := range geom.Triangles {
-				modelMatrix := geom.Transform.GetMatrix()
-				mvpMatrix := lightVP.Multiply(modelMatrix)
-
-				// Transform vertices to clip space
-				v0 := mvpMatrix.MultiplyVec4(triangle.V0.ToVec4(1.0))
-				v1 := mvpMatrix.MultiplyVec4(triangle.V1.ToVec4(1.0))
-				v2 := mvpMatrix.MultiplyVec4(triangle.V2.ToVec4(1.0))
-
-				// Skip triangles that are completely behind the light
-				if v0.W <= 0 && v1.W <= 0 && v2.W <= 0 {
-					continue
-				}
-
-				// Perform perspective divide
-				ndc0 := v0.Divide(v0.W).ToVec3()
-				ndc1 := v1.Divide(v1.W).ToVec3()
-				ndc2 := v2.Divide(v2.W).ToVec3()
-
-				// Convert to shadow map coordinates [0,1] range
-				v0Screen := nomath.Vec2{
-					U: (ndc0.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-					V: (1 - (ndc0.Y+1)*0.5) * float64(light.ShadowMap.Height),
-				}
-				v1Screen := nomath.Vec2{
-					U: (ndc1.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-					V: (1 - (ndc1.Y+1)*0.5) * float64(light.ShadowMap.Height),
-				}
-				v2Screen := nomath.Vec2{
-					U: (ndc2.X + 1) * 0.5 * float64(light.ShadowMap.Width),
-					V: (1 - (ndc2.Y+1)*0.5) * float64(light.ShadowMap.Height),
-				}
-
-				// Convert depth from [-1,1] to [0,1] range
-				depth0 := (ndc0.Z + 1) * 0.5
-				depth1 := (ndc1.Z + 1) * 0.5
-				depth2 := (ndc2.Z + 1) * 0.5
-
-				// Find bounding box in shadow map
-				minX := max(0, min(int(v0Screen.U), min(int(v1Screen.U), int(v2Screen.U))))
-				maxX := min(light.ShadowMap.Width-1, max(int(v0Screen.U), max(int(v1Screen.U), int(v2Screen.U))))
-				minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
-				maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
-				// Rasterize triangle to shadow map
-				for y := minY; y <= maxY; y++ {
-
-					for x := minX; x <= maxX; x++ {
-						p := nomath.Vec2{U: float64(x), V: float64(y)}
-						u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
-
-						if u >= 0 && v >= 0 && w >= 0 {
-
-							// Interpolate depth
-							depth := u*depth0 + v*depth1 + w*depth2
-
-							// Update shadow map depth if this is closer
-							if depth < light.ShadowMap.Depth[y][x] {
-
-								light.ShadowMap.Depth[y][x] = depth
-							}
-						}
-					}
-				}
+				workChan <- triangle
 			}
 		}
 	}
+
+	close(workChan)
+	renderWg.Wait()
 }
-
-// Helper function to render a triangle to shadow map
-func (s *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
-
+func (r *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
@@ -803,13 +757,59 @@ func (s *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Tr
 	minY := max(0, min(int(v0Screen.V), min(int(v1Screen.V), int(v2Screen.V))))
 	maxY := min(light.ShadowMap.Height-1, max(int(v0Screen.V), max(int(v1Screen.V), int(v2Screen.V))))
 
-	// Rasterize triangle to shadow map
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			p := nomath.Vec2{U: float64(x), V: float64(y)}
-			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
+	if minX > maxX || minY > maxY {
+		return
+	}
 
-			if u >= 0 && v >= 0 && w >= 0 {
+	// Calculate edges for edge function
+	a0, b0, c0 := edgeFunction(v1Screen, v2Screen)
+	a1, b1, c1 := edgeFunction(v2Screen, v0Screen)
+	a2, b2, c2 := edgeFunction(v0Screen, v1Screen)
+
+	// Calculate total area for barycentric coordinates
+	totalArea := edgeFunctionResult(a0, b0, c0, v0Screen.U, v0Screen.V)
+	if totalArea == 0 {
+		return // Degenerate triangle
+	}
+	invArea := 1.0 / totalArea
+
+	// Scanline rasterization with early exits
+	for y := minY; y <= maxY; y++ {
+		// Find start and end x for this scanline
+		xStart, xEnd := findScanlineBounds(y,
+			int(v0Screen.U), int(v0Screen.V),
+			int(v1Screen.U), int(v1Screen.V),
+			int(v2Screen.U), int(v2Screen.V))
+		if xStart > xEnd {
+			xStart, xEnd = xEnd, xStart
+		}
+
+		// Expand bounds by 1 pixel to prevent gaps
+		xStart = max(minX, xStart-1)
+		xEnd = min(maxX, xEnd+1)
+
+		// Precompute row values
+		rowY := float64(y)
+		rowStart := float64(xStart)
+
+		// Precompute initial edge function values for the row
+		w0_row := a0*rowStart + b0*rowY + c0
+		w1_row := a1*rowStart + b1*rowY + c1
+		w2_row := a2*rowStart + b2*rowY + c2
+
+		// Precompute increments for x steps
+		w0_inc := a0
+		w1_inc := a1
+		w2_inc := a2
+
+		for x := xStart; x <= xEnd; x++ {
+			// Calculate barycentric coordinates
+			u := w0_row * invArea
+			v := w1_row * invArea
+			w := w2_row * invArea
+
+			// Check if point is inside triangle (with small epsilon)
+			if u >= -0.0001 && v >= -0.0001 && w >= -0.0001 {
 				// Interpolate depth
 				depth := u*depth0 + v*depth1 + w*depth2
 
@@ -818,6 +818,11 @@ func (s *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Tr
 					light.ShadowMap.Depth[y][x] = depth
 				}
 			}
+
+			// Increment edge function values
+			w0_row += w0_inc
+			w1_row += w1_inc
+			w2_row += w2_inc
 		}
 	}
 }

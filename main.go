@@ -17,10 +17,10 @@ func main() {
 	scene := core.NewScene()
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeB.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
 	plane_assembly := assets.NewAssembly()
 	plane, err := assets.LoadOBJ("objs/ground_plane.obj")
 	if err != nil {

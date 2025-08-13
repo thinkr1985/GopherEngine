@@ -102,9 +102,9 @@ func NewSunLight(s *Scene) *Light {
 	l.Color.R = 240
 	l.Color.G = 237
 	l.Color.B = 168
-	l.Transform.SetPosition(nomath.Vec3{X: 0, Y: 20, Z: 20})
-	l.Transform.Rotation.X = 4.2
-	l.Transform.Rotation.Y = 1.0
+	l.Transform.Position = nomath.Vec3{X: 0, Y: 50, Z: 50} // Higher position reduces artifacts
+	l.Transform.LookAt(nomath.Vec3{X: 0, Y: 0, Z: -45}, nomath.Vec3{X: 25, Y: 1, Z: 0})
+
 	l.Transform.Dirty = true
 	l.Transform.UpdateModelMatrix()
 
@@ -127,6 +127,23 @@ func (l *Light) InitShadowMap(width, height int) {
 			l.ShadowMap.Depth[i][j] = math.MaxFloat64
 		}
 	}
+
+	// For directional lights, use orthographic projection
+	if l.Type == LightTypeDirectional || l.Type == LightTypeSun {
+		size := 50.0 // Adjust based on your scene size
+		l.ShadowMap.ProjMatrix = nomath.Ortho(
+			-size, size,
+			-size, size,
+			0.1, 200.0)
+	} else {
+		// For point lights, use perspective projection
+		l.ShadowMap.ProjMatrix = nomath.Mat4{
+			1, 0, 0, 0,
+			0, 1, 0, 0,
+			0, 0, 1, 1,
+			0, 0, -0.1, 0,
+		}
+	}
 }
 
 func (l *Light) GetDirection() nomath.Vec3 {
@@ -141,14 +158,13 @@ func (l *Light) String() string {
 }
 
 func (l *Light) Update() {
-
 	l.Transform.UpdateModelMatrix()
 
 	if l.Shadows && l.ShadowMap != nil {
 		// Update light view and projection matrices
 		lightPos := l.Transform.Position
-		target := lightPos.Add(l.GetDirection().Multiply(-100)) // Look in light direction
-		up := nomath.Vec3{X: 0, Y: 1, Z: 0}                     // World up vector
+		target := lightPos.Add(l.GetDirection().Multiply(100)) // Look in light direction
+		up := nomath.Vec3{X: 0, Y: 1, Z: 0}                    // World up vector
 
 		// Create light view matrix
 		l.ShadowMap.ViewMatrix = nomath.LookAtMatrix(lightPos, target, up)
@@ -160,6 +176,8 @@ func (l *Light) Update() {
 		near, far := 0.1, 200.0
 
 		l.ShadowMap.ProjMatrix = nomath.Ortho(left, right, bottom, top, near, far)
+
+		// Cache the light VP matrix
 		LightVp := l.ShadowMap.ProjMatrix.Multiply(l.ShadowMap.ViewMatrix)
 		l.LightVp = &LightVp
 	}
