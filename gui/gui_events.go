@@ -57,6 +57,14 @@ func HandleInputEvents(scene *core.Scene) {
 		}
 
 	}
+	if rl.IsKeyPressed(rl.KeyF3) {
+		if scene.Renderer.MultiThreading {
+			scene.Renderer.MultiThreading = false
+		} else {
+			scene.Renderer.MultiThreading = true
+		}
+
+	}
 
 	if rl.IsWindowReady() {
 		HandleKeyboardEvents(scene)
@@ -180,7 +188,7 @@ func HandleMouseEvents(scene *core.Scene) {
 		rotationSpeed := 0.002
 		scene.Camera.Transform.Rotate(nomath.Vec3{
 			Y: -float64(delta.X) * rotationSpeed,
-			X: -float64(delta.Y) * rotationSpeed,
+			// X: -float64(delta.Y) * rotationSpeed,
 		})
 		scene.Camera.Transform.Dirty = true
 		scene.Camera.Transform.Dirty = true

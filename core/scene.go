@@ -82,8 +82,8 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-	// s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
-	// s.DefaultLight.Transform.Dirty = true
+	s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
+	s.DefaultLight.Transform.Dirty = true
 	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
 	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
@@ -129,19 +129,12 @@ func (s *Scene) LoadAssembly(assembly_path string) {
 
 }
 
-func (s *Scene) RenderScene() {
+func (s *Scene) Render() {
 	s.TotalTriangleCounter = 0
 	s.DrawnTriangles = 0
 	s.UpdateScene()
 
-	// Drawing scene elements first!
-	s.ViewAxes.Draw(s.Renderer, s.Camera)
-
-	viewDir := s.Camera.Transform.GetForward()
-	viewProjMatrix := s.Camera.cachedViewProjMatrix
-
-	// Clear shadow map
-
+	// Clear shadow maps
 	for _, light := range s.Lights {
 		light.DrawLight()
 		if light.Shadows && light.ShadowMap != nil {
@@ -152,6 +145,22 @@ func (s *Scene) RenderScene() {
 			}
 		}
 	}
+
+	// Drawing scene elements first!
+	s.ViewAxes.Draw(s.Renderer, s.Camera)
+	viewDir := s.Camera.Transform.GetForward()
+
+	if s.Renderer.MultiThreading {
+		s.RenderOnThreads(viewDir)
+	} else {
+		s.RenderScene(viewDir)
+	}
+
+}
+
+func (s *Scene) RenderScene(viewDir nomath.Vec3) {
+
+	viewProjMatrix := s.Camera.cachedViewProjMatrix
 
 	// Precompute light dot normal per triangle
 	for _, assembly := range s.Assemblies {
@@ -198,34 +207,7 @@ func (s *Scene) RenderScene() {
 	}
 }
 
-func (s *Scene) RenderOnThreads() {
-	// First update all scene elements and matrices
-	s.UpdateScene()
-	s.DrawnTriangles = 0
-	s.TotalTriangleCounter = 0
-	// atomic.StoreInt32(&s.DrawnTriangles, 0)
-
-	// Update and cache matrices with write lock
-	// s.matrixMutex.Lock()
-	// s.cachedViewMatrix = s.Camera.GetViewMatrix()
-	// s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
-	// s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
-	// s.matrixMutex.Unlock()
-
-	// Clear shadow maps
-	for _, light := range s.Lights {
-		light.DrawLight()
-		if light.Shadows && light.ShadowMap != nil {
-			for y := 0; y < light.ShadowMap.Height; y++ {
-				for x := 0; x < light.ShadowMap.Width; x++ {
-					light.ShadowMap.Depth[y][x] = math.MaxFloat64
-				}
-			}
-		}
-	}
-
-	// Get view direction (after matrix updates)
-	viewDir := s.Camera.Transform.GetForward()
+func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 
 	// Worker pool setup
 	numWorkers := runtime.NumCPU()

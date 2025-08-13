@@ -27,7 +27,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(120)
+	rl.SetTargetFPS(240)
 
 }
 
@@ -64,14 +64,14 @@ func Window(scene *core.Scene) {
 	defer rl.UnloadTexture(fullResTex)
 
 	// Start with a 1x1 black texture
-	// initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
-	// fullResTex = rl.LoadTextureFromImage(&rl.Image{
-	// 	Data:    unsafe.Pointer(&initialPixels[0]),
-	// 	Width:   1,
-	// 	Height:  1,
-	// 	Mipmaps: 1,
-	// 	Format:  rl.PixelFormat(7),
-	// })
+	initialPixels := []color.RGBA{{R: 0, G: 0, B: 0, A: 255}}
+	fullResTex = rl.LoadTextureFromImage(&rl.Image{
+		Data:    unsafe.Pointer(&initialPixels[0]),
+		Width:   1,
+		Height:  1,
+		Mipmaps: 1,
+		Format:  rl.PixelFormat(7),
+	})
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -99,7 +99,7 @@ func Window(scene *core.Scene) {
 		HandleInputEvents(scene)
 
 		// Render 3D
-		scene.RenderScene()
+		scene.Render()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -124,7 +124,7 @@ func Window(scene *core.Scene) {
 
 		// Draw everything
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.Gray)
+		rl.ClearBackground(rl.DarkBlue)
 
 		rl.DrawTexturePro(
 			fullResTex,
@@ -137,6 +137,7 @@ func Window(scene *core.Scene) {
 
 		rl.DrawFPS(20, 20)
 		draw_debug_stats(scene)
+		draw_threading_status(scene)
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
 
 		rl.EndDrawing()
@@ -206,14 +207,24 @@ func draw_debug_stats(scene *core.Scene) {
 		scene.Renderer.GPU)
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+100, 180, rl.NewColor(0, 0, 0, 30))
+	rl.DrawRectangle(10, 10, textWidth+100, 190, rl.NewColor(0, 0, 0, 30))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 
 	// Show scaling info if in auto mode
 	if scene.AutoResolution {
 		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
-		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 170), 12, 2, rl.LightGray)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 180), 12, 2, rl.LightGray)
 	}
+}
+
+func draw_threading_status(scene *core.Scene) {
+	thread_text := fmt.Sprintf("Multi-Threading (F3) : %v", scene.Renderer.MultiThreading)
+
+	rl.DrawTextEx(
+		debugFont, thread_text,
+		rl.NewVector2(float32(rl.GetRenderWidth()-300), float32(rl.GetRenderHeight()/12)),
+		12, 2, rl.White)
+
 }
 
 func drawKeyboardOverlay(tex rl.Texture2D) {

@@ -30,9 +30,10 @@ type Renderer3D struct {
 	FogStart   float64 // Distance where fog starts
 	FogEnd     float64 // Distance where fog is fully opaque
 
-	rowLocks []sync.Mutex // NEW: One mutex per row
-	CPU      string
-	GPU      string
+	MultiThreading bool
+	rowLocks       []sync.Mutex // NEW: One mutex per row
+	CPU            string
+	GPU            string
 
 	// Pre-allocated buffers to avoid allocations
 
@@ -51,16 +52,17 @@ func NewRenderer3D() *Renderer3D {
 		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
 		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
 
-		FogEnabled:    false,
-		FogColor:      lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
-		FogDensity:    0.05,
-		FogStart:      5.0,
-		FogEnd:        500.0,
-		DOFEnabled:    false,
-		DOFFocusDepth: 0.4,
-		DOFFocusRange: 0.1,
-		DOFBlurRadius: 3.0,
-		DOFTempBuffer: make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
+		FogEnabled:     false,
+		FogColor:       lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
+		FogDensity:     0.05,
+		FogStart:       5.0,
+		FogEnd:         500.0,
+		DOFEnabled:     false,
+		DOFFocusDepth:  0.4,
+		DOFFocusRange:  0.1,
+		DOFBlurRadius:  3.0,
+		DOFTempBuffer:  make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
+		MultiThreading: false,
 	}
 	// Initialize temp buffer
 	for y := 0; y < SCREEN_HEIGHT; y++ {
@@ -254,6 +256,22 @@ func (r *Renderer3D) DrawLine3D(p0, p1 nomath.Vec3, camera *PerspectiveCamera, c
 	r.DrawLine2D(x0, y0, x1, y1, color)
 }
 
+func (r *Renderer3D) DrawTriangle3D(p1, p2, p3 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
+	// Transform and rasterize triangle with projection
+	// You can draw as 3 lines or fill it if you support that
+	r.DrawLine3D(p1, p2, camera, color)
+	r.DrawLine3D(p2, p3, camera, color)
+	r.DrawLine3D(p3, p1, camera, color)
+}
+
+func (r *Renderer3D) DrawText3D(text string, position nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
+	x, y, ok := r.ProjectToScreen(position, camera)
+	if !ok {
+		return
+	}
+	r.DrawText2D(text, x, y, &lookdev.ColorRGBA{R: color.R, G: color.G, B: color.B, A: 255})
+}
+
 func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
 	// Get current renderer dimensions
 	width := r.GetWidth()
@@ -307,14 +325,6 @@ func (r *Renderer3D) DrawLine2D(x0, y0, x1, y1 int, color *lookdev.ColorRGBA) {
 			y0 += sy
 		}
 	}
-}
-
-// Helper function for absolute value
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 func (r *Renderer3D) RenderTriangle(mvpMatrix *nomath.Mat4, modelMatrix *nomath.Mat4, camera *PerspectiveCamera, tri *assets.Triangle, lights []*Light, scene *Scene) {
@@ -398,6 +408,12 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 	x1, y1 := r.NDCToScreen(verts[1])
 	x2, y2 := r.NDCToScreen(verts[2])
 
+	// Calculate triangle area to determine winding order
+	area := (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0)
+	if area == 0 {
+		return // Degenerate triangle
+	}
+
 	// Calculate bounding box with early exit
 	minX := max(0, min3(x0, x1, x2))
 	maxX := min(r.GetWidth()-1, max3(x0, x1, x2))
@@ -426,50 +442,138 @@ func (r *Renderer3D) rasterizeTriangle(modelMatrix *nomath.Mat4, verts [3]nomath
 	worldV1 := modelMatrix.MultiplyVec4(tri.V1.ToVec4(1.0)).ToVec3()
 	worldV2 := modelMatrix.MultiplyVec4(tri.V2.ToVec4(1.0)).ToVec3()
 
-	// Rasterize the triangle
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			p := nomath.Vec2{U: float64(x), V: float64(y)}
-			u, v, w := assets.Barycentric(p, v0Screen, v1Screen, v2Screen)
+	// Calculate normal matrix for correct normal transformation
+	normalMatrix := modelMatrix.Inverse().Transpose()
 
-			if u >= 0 && v >= 0 && w >= 0 {
-				// fmt.Print("******************************************")
+	// Calculate edges for edge function (using original vertex order)
+	a0, b0, c0 := edgeFunction(v1Screen, v2Screen)
+	a1, b1, c1 := edgeFunction(v2Screen, v0Screen)
+	a2, b2, c2 := edgeFunction(v0Screen, v1Screen)
+
+	// Calculate total area for barycentric coordinates
+	totalArea := edgeFunctionResult(a0, b0, c0, v0Screen.U, v0Screen.V)
+	if totalArea == 0 {
+		return // Degenerate triangle
+	}
+	invArea := 1.0 / totalArea
+
+	// Scanline rasterization with expanded bounds
+	for y := minY; y <= maxY; y++ {
+		// Find start and end x for this scanline
+		xStart, xEnd := findScanlineBounds(y, x0, y0, x1, y1, x2, y2)
+		if xStart > xEnd {
+			xStart, xEnd = xEnd, xStart
+		}
+
+		// Expand bounds by 1 pixel to prevent gaps (but don't sort vertices)
+		xStart = max(0, xStart-1)
+		xEnd = min(r.GetWidth()-1, xEnd+1)
+
+		// Precompute row values
+		rowY := float64(y)
+		rowStart := float64(xStart)
+
+		// Precompute initial edge function values for the row
+		w0_row := a0*rowStart + b0*rowY + c0
+		w1_row := a1*rowStart + b1*rowY + c1
+		w2_row := a2*rowStart + b2*rowY + c2
+
+		// Precompute increments for x steps
+		w0_inc := a0
+		w1_inc := a1
+		w2_inc := a2
+
+		for x := xStart; x <= xEnd; x++ {
+			// Calculate barycentric coordinates with small epsilon
+			u := w0_row * invArea
+			v := w1_row * invArea
+			w := w2_row * invArea
+
+			// Check if point is inside triangle (with small epsilon)
+			if u >= -0.0001 && v >= -0.0001 && w >= -0.0001 {
 				depth := u*depth0 + v*depth1 + w*depth2
 				if depth >= 0 && depth <= 1 && depth < float64(r.DepthBuffer[y][x]) {
-
 					// Interpolate world position
 					worldPos := worldV0.Multiply(u).Add(worldV1.Multiply(v)).Add(worldV2.Multiply(w))
 					distance := cameraPos.DistanceTo(worldPos)
 
-					if tri.Parent.Name == "SkySphereMesh" {
-						uv := tri.InterpolatedUV(u, v, w)
-						finalColor := tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
-						bg := r.Framebuffer[y][x]
-						new_color := lookdev.BlendColors(bg, finalColor)
+					// Calculate interpolated normal (using original vertex order)
+					var worldNormal nomath.Vec3
+					if tri.Parent.SoftNormals {
+						interpNormal := tri.N0.Multiply(u).Add(tri.N1.Multiply(v)).Add(tri.N2.Multiply(w))
+						worldNormal = normalMatrix.TransformVec3(interpNormal).Normalize()
+					} else {
+						worldNormal = normalMatrix.TransformVec3(tri.Normal()).Normalize()
+					}
+					tri.WorldNormal = worldNormal
+
+					// Calculate lighting
+					finalColor := r.calculateLighting(modelMatrix, tri, camera.Transform.GetForward(), lights, u, v, w)
+					// Apply fog
+					new_color := r.applyFog(*finalColor, distance)
+
+					// Alpha blending and pixel drawing
+					if finalColor.A > 0.01 {
+						if finalColor.A < 1.0 {
+							bg := r.Framebuffer[y][x]
+							new_color = lookdev.BlendColors(bg, new_color)
+						}
 						r.safeSetPixel(x, y, new_color)
 						r.DepthBuffer[y][x] = float32(depth)
-
-					} else {
-						// Calculate lighting
-						finalColor := r.calculateLighting(modelMatrix, tri, camera.Transform.GetForward(), lights, u, v, w)
-						// Apply fog
-						new_color := r.applyFog(*finalColor, distance)
-
-						// Alpha blending and pixel drawing
-						if finalColor.A > 0.01 {
-							if finalColor.A < 1.0 {
-								bg := r.Framebuffer[y][x]
-								new_color = lookdev.BlendColors(bg, new_color)
-							}
-							r.safeSetPixel(x, y, new_color)
-							r.DepthBuffer[y][x] = float32(depth)
-						}
 					}
-				}
 
+				}
 			}
+
+			// Increment edge function values
+			w0_row += w0_inc
+			w1_row += w1_inc
+			w2_row += w2_inc
 		}
 	}
+}
+
+func edgeFunction(a, b nomath.Vec2) (float64, float64, float64) {
+	return a.V - b.V, b.U - a.U, a.U*b.V - a.V*b.U
+}
+
+func edgeFunctionResult(a, b, c, x, y float64) float64 {
+	return a*x + b*y + c
+}
+
+func findScanlineBounds(y int, x0, y0, x1, y1, x2, y2 int) (int, int) {
+	// Calculate x on all three edges that include this y value
+	var points []int
+
+	// Edge 0-1
+	if (y >= y0 && y <= y1) || (y >= y1 && y <= y0) {
+		if y0 != y1 {
+			t := (float64(y) - float64(y0)) / (float64(y1) - float64(y0))
+			points = append(points, x0+int(t*float64(x1-x0)))
+		}
+	}
+
+	// Edge 0-2
+	if (y >= y0 && y <= y2) || (y >= y2 && y <= y0) {
+		if y0 != y2 {
+			t := (float64(y) - float64(y0)) / (float64(y2) - float64(y0))
+			points = append(points, x0+int(t*float64(x2-x0)))
+		}
+	}
+
+	// Edge 1-2
+	if (y >= y1 && y <= y2) || (y >= y2 && y <= y1) {
+		if y1 != y2 {
+			t := (float64(y) - float64(y1)) / (float64(y2) - float64(y1))
+			points = append(points, x1+int(t*float64(x2-x1)))
+		}
+	}
+
+	if len(points) < 2 {
+		return 0, 0
+	}
+
+	return minMax(points)
 }
 
 func (r *Renderer3D) safeSetPixel(x, y int, color lookdev.ColorRGBA) {
@@ -489,16 +593,7 @@ func (r *Renderer3D) isInShadow(pos nomath.Vec3, light *Light) bool {
 		return false
 	}
 
-	// Use cached Light VP matrix if available (faster than multiplying View*Proj here)
-	// you already set light.LightVp elsewhere in your code path; prefer that
-	var lightVP nomath.Mat4
-	if light.LightVp != nil {
-		lightVP = *light.LightVp
-	} else {
-		// fallback to current shadowmap matrices
-		lightVP = light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
-	}
-
+	lightVP := light.LightVp
 	// Transform fragment position into light clip space and then NDC
 	lightClip := lightVP.MultiplyVec4(pos.ToVec4(1.0))
 
@@ -583,24 +678,15 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		return
 	}
 
-	// Clear shadow map
-	for y := 0; y < light.ShadowMap.Height; y++ {
-		for x := 0; x < light.ShadowMap.Width; x++ {
-			light.ShadowMap.Depth[y][x] = math.MaxFloat64
-		}
-	}
-
 	// Get light view-projection matrix
-	lightVP := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+	lightVP := light.LightVp
 
 	// Render all triangles from light's perspective
 	for _, assembly := range scene.Assemblies {
 		if !assembly.IsVisible {
 			continue
 		}
-		if assembly.Name == "DefaultSkySphere" {
-			continue
-		}
+
 		for _, geom := range assembly.Geometries {
 			if !scene.Camera.IsVisible(geom.BoundingBox) || !geom.IsVisible {
 				continue
@@ -676,6 +762,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 
 // Helper function to render a triangle to shadow map
 func (s *Renderer3D) renderShadowTriangle(mvpMatrix *nomath.Mat4, tri *assets.Triangle, light *Light) {
+
 	// Transform vertices to clip space
 	v0 := mvpMatrix.MultiplyVec4(tri.V0.ToVec4(1.0))
 	v1 := mvpMatrix.MultiplyVec4(tri.V1.ToVec4(1.0))
@@ -793,10 +880,6 @@ func (r *Renderer3D) calculateLighting(
 	specularG := 0.0
 	specularB := 0.0
 
-	// Normalize view direction
-	// viewDir = viewDir.Normalize()
-	// worldNormal = worldNormal.Normalize()
-
 	// Process each light
 	for i, light := range lights {
 		if light.Intensity <= 0.001 {
@@ -861,22 +944,6 @@ func (r *Renderer3D) calculateLighting(
 	}
 }
 
-func (r *Renderer3D) DrawTriangle3D(p1, p2, p3 nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
-	// Transform and rasterize triangle with projection
-	// You can draw as 3 lines or fill it if you support that
-	r.DrawLine3D(p1, p2, camera, color)
-	r.DrawLine3D(p2, p3, camera, color)
-	r.DrawLine3D(p3, p1, camera, color)
-}
-
-func (r *Renderer3D) DrawText3D(text string, position nomath.Vec3, camera *PerspectiveCamera, color *lookdev.ColorRGBA) {
-	x, y, ok := r.ProjectToScreen(position, camera)
-	if !ok {
-		return
-	}
-	r.DrawText2D(text, x, y, &lookdev.ColorRGBA{R: color.R, G: color.G, B: color.B, A: 255})
-}
-
 func (r *Renderer3D) ProjectToScreen(pos nomath.Vec3, camera *PerspectiveCamera) (int, int, bool) {
 	viewMatrix := camera.GetViewMatrix()
 	projMatrix := camera.GetProjectionMatrix()
@@ -939,16 +1006,6 @@ func (r *Renderer3D) BlurShadowMap(light *Light) {
 	}
 }
 
-func clampColor(value float64) uint8 {
-	if value < 0 {
-		return 0
-	}
-	if value > 255 {
-		return 255
-	}
-	return uint8(value)
-}
-
 func (r *Renderer3D) applyFog(color lookdev.ColorRGBA, distance float64) lookdev.ColorRGBA {
 	if !r.FogEnabled || distance < r.FogStart {
 		return color
@@ -976,8 +1033,8 @@ func (r *Renderer3D) PreComputeLightDirs(s *Scene) {
 		} else {
 			r.precomputedLightDirs[i] = light.Transform.Position
 		}
-		LightVp := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
-		light.LightVp = (*nomath.Mat4)(&LightVp)
+		// LightVp := light.ShadowMap.ProjMatrix.Multiply(light.ShadowMap.ViewMatrix)
+		// light.LightVp = (*nomath.Mat4)(&LightVp)
 	}
 }
 
@@ -1161,4 +1218,35 @@ func clamp(value, min, max float64) float64 {
 		return max
 	}
 	return value
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func minMax(points []int) (int, int) {
+	minVal := points[0]
+	maxVal := points[0]
+	for _, p := range points[1:] {
+		if p < minVal {
+			minVal = p
+		}
+		if p > maxVal {
+			maxVal = p
+		}
+	}
+	return minVal, maxVal
+}
+
+func clampColor(value float64) uint8 {
+	if value < 0 {
+		return 0
+	}
+	if value > 255 {
+		return 255
+	}
+	return uint8(value)
 }

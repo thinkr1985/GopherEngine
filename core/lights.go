@@ -53,6 +53,9 @@ func NewPointLight(s *Scene) *Light {
 	l.Color.B = 255
 	l.Transform.UpdateModelMatrix()
 	l.InitShadowMap(1024, 1024)
+	l.InitShadowMap(1024, 1024)
+	LightVp := l.ShadowMap.ProjMatrix.Multiply(l.ShadowMap.ViewMatrix)
+	l.LightVp = &LightVp
 	return l
 }
 
@@ -76,6 +79,9 @@ func NewDirectionalLight(s *Scene) *Light {
 
 	// Initialize shadow map for directional light
 	l.InitShadowMap(512, 512)
+	l.InitShadowMap(1024, 1024)
+	LightVp := l.ShadowMap.ProjMatrix.Multiply(l.ShadowMap.ViewMatrix)
+	l.LightVp = &LightVp
 
 	return l
 }
@@ -104,7 +110,8 @@ func NewSunLight(s *Scene) *Light {
 
 	// Initialize shadow map for directional light
 	l.InitShadowMap(1024, 1024)
-
+	LightVp := l.ShadowMap.ProjMatrix.Multiply(l.ShadowMap.ViewMatrix)
+	l.LightVp = &LightVp
 	return l
 }
 
@@ -153,6 +160,8 @@ func (l *Light) Update() {
 		near, far := 0.1, 200.0
 
 		l.ShadowMap.ProjMatrix = nomath.Ortho(left, right, bottom, top, near, far)
+		LightVp := l.ShadowMap.ProjMatrix.Multiply(l.ShadowMap.ViewMatrix)
+		l.LightVp = &LightVp
 	}
 }
 
