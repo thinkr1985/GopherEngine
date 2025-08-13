@@ -2,10 +2,8 @@ package nomath
 
 import "math"
 
-// Mat4 represents a 4x4 matrix in column-major order-----------------------------------------------
 type Mat4 [16]float64
 
-// IdentityMatrix returns a 4x4 identity matrix
 func IdentityMatrix() Mat4 {
 	return Mat4{
 		1, 0, 0, 0,
@@ -15,7 +13,10 @@ func IdentityMatrix() Mat4 {
 	}
 }
 
-// TranslationMatrix creates a translation matrix
+func isAffine(m Mat4) bool {
+	return m[3] == 0 && m[7] == 0 && m[11] == 0 && m[15] == 1
+}
+
 func TranslationMatrix(x, y, z float64) Mat4 {
 	return Mat4{
 		1, 0, 0, 0,
@@ -25,7 +26,6 @@ func TranslationMatrix(x, y, z float64) Mat4 {
 	}
 }
 
-// ScaleMatrix creates a scaling matrix
 func ScaleMatrix(x, y, z float64) Mat4 {
 	return Mat4{
 		x, 0, 0, 0,
@@ -35,7 +35,6 @@ func ScaleMatrix(x, y, z float64) Mat4 {
 	}
 }
 
-// RotationXMatrix creates a rotation matrix around X axis (pitch)
 func RotationXMatrix(angle float64) Mat4 {
 	c := math.Cos(angle)
 	s := math.Sin(angle)
@@ -47,7 +46,6 @@ func RotationXMatrix(angle float64) Mat4 {
 	}
 }
 
-// RotationYMatrix creates a rotation matrix around Y axis (yaw)
 func RotationYMatrix(angle float64) Mat4 {
 	c := math.Cos(angle)
 	s := math.Sin(angle)
@@ -59,7 +57,6 @@ func RotationYMatrix(angle float64) Mat4 {
 	}
 }
 
-// RotationZMatrix creates a rotation matrix around Z axis (roll)
 func RotationZMatrix(angle float64) Mat4 {
 	c := math.Cos(angle)
 	s := math.Sin(angle)
@@ -71,46 +68,40 @@ func RotationZMatrix(angle float64) Mat4 {
 	}
 }
 
-// Inverse returns the inverse of the matrix.
-// If the matrix is non-invertible, it returns the identity matrix.
+// Optimized inverse assuming the matrix is affine (last row: [0 0 0 1])
 func (m Mat4) Inverse() Mat4 {
-	inv := Mat4{}
+	// Upper-left 3x3 (rotation/scale)
+	r0 := Vec3{m[0], m[1], m[2]}
+	r1 := Vec3{m[4], m[5], m[6]}
+	r2 := Vec3{m[8], m[9], m[10]}
 
-	inv[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10]
-	inv[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10]
-	inv[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9]
-	inv[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9]
+	// Transpose of rotation matrix (inverse if orthonormal)
+	rt0 := Vec3{r0.X, r1.X, r2.X}
+	rt1 := Vec3{r0.Y, r1.Y, r2.Y}
+	rt2 := Vec3{r0.Z, r1.Z, r2.Z}
 
-	inv[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10]
-	inv[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10]
-	inv[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9]
-	inv[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9]
+	// Translation
+	t := Vec3{m[12], m[13], m[14]}
 
-	inv[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6]
-	inv[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6]
-	inv[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5]
-	inv[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5]
+	// Inverted translation
+	negT := Vec3{-t.X, -t.Y, -t.Z}
 
-	inv[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6]
-	inv[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6]
-	inv[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] - m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5]
-	inv[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] + m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5]
-
-	det := m[0]*inv[0] + m[1]*inv[4] + m[2]*inv[8] + m[3]*inv[12]
-
-	if det == 0 {
-		// Non-invertible matrix, return identity as fallback
-		return IdentityMatrix()
+	// New translation = -R^T * T
+	newT := Vec3{
+		rt0.X*negT.X + rt0.Y*negT.Y + rt0.Z*negT.Z,
+		rt1.X*negT.X + rt1.Y*negT.Y + rt1.Z*negT.Z,
+		rt2.X*negT.X + rt2.Y*negT.Y + rt2.Z*negT.Z,
 	}
 
-	invDet := 1.0 / det
-	for i := 0; i < 16; i++ {
-		inv[i] *= invDet
+	return Mat4{
+		rt0.X, rt0.Y, rt0.Z, 0,
+		rt1.X, rt1.Y, rt1.Z, 0,
+		rt2.X, rt2.Y, rt2.Z, 0,
+		newT.X, newT.Y, newT.Z, 1,
 	}
-
-	return inv
 }
 
+// Transpose returns the transpose of the matrix
 func (m Mat4) Transpose() Mat4 {
 	return Mat4{
 		m[0], m[4], m[8], m[12],
@@ -147,57 +138,60 @@ func (m Mat4) ToEulerAnglesYXZ() Vec3 {
 
 	return angles
 }
+func (a Mat4) Multiply(b Mat4) Mat4 {
+	if isAffine(a) && isAffine(b) {
+		// Optimized affine multiplication
+		return Mat4{
+			// First column
+			a[0]*b[0] + a[4]*b[1] + a[8]*b[2],
+			a[1]*b[0] + a[5]*b[1] + a[9]*b[2],
+			a[2]*b[0] + a[6]*b[1] + a[10]*b[2],
+			0,
 
-// Multiply optimized version (unrolled loops where possible)
-// func (m Mat4) Multiply(other Mat4) Mat4 {
-// 	return Mat4{
-// 		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
-// 		m[1]*other[0] + m[5]*other[1] + m[9]*other[2] + m[13]*other[3],
-// 		m[2]*other[0] + m[6]*other[1] + m[10]*other[2] + m[14]*other[3],
-// 		m[3]*other[0] + m[7]*other[1] + m[11]*other[2] + m[15]*other[3],
+			// Second column
+			a[0]*b[4] + a[4]*b[5] + a[8]*b[6],
+			a[1]*b[4] + a[5]*b[5] + a[9]*b[6],
+			a[2]*b[4] + a[6]*b[5] + a[10]*b[6],
+			0,
 
-// 		m[0]*other[4] + m[4]*other[5] + m[8]*other[6] + m[12]*other[7],
-// 		m[1]*other[4] + m[5]*other[5] + m[9]*other[6] + m[13]*other[7],
-// 		m[2]*other[4] + m[6]*other[5] + m[10]*other[6] + m[14]*other[7],
-// 		m[3]*other[4] + m[7]*other[5] + m[11]*other[6] + m[15]*other[7],
+			// Third column
+			a[0]*b[8] + a[4]*b[9] + a[8]*b[10],
+			a[1]*b[8] + a[5]*b[9] + a[9]*b[10],
+			a[2]*b[8] + a[6]*b[9] + a[10]*b[10],
+			0,
 
-// 		m[0]*other[8] + m[4]*other[9] + m[8]*other[10] + m[12]*other[11],
-// 		m[1]*other[8] + m[5]*other[9] + m[9]*other[10] + m[13]*other[11],
-// 		m[2]*other[8] + m[6]*other[9] + m[10]*other[10] + m[14]*other[11],
-// 		m[3]*other[8] + m[7]*other[9] + m[11]*other[10] + m[15]*other[11],
+			// Fourth column (translation)
+			a[0]*b[12] + a[4]*b[13] + a[8]*b[14] + a[12],
+			a[1]*b[12] + a[5]*b[13] + a[9]*b[14] + a[13],
+			a[2]*b[12] + a[6]*b[13] + a[10]*b[14] + a[14],
+			1,
+		}
+	}
 
-// 		m[0]*other[12] + m[4]*other[13] + m[8]*other[14] + m[12]*other[15],
-// 		m[1]*other[12] + m[5]*other[13] + m[9]*other[14] + m[13]*other[15],
-// 		m[2]*other[12] + m[6]*other[13] + m[10]*other[14] + m[14]*other[15],
-// 		m[3]*other[12] + m[7]*other[13] + m[11]*other[14] + m[15]*other[15],
-// 	}
-// }
-
-func (m Mat4) Multiply(other Mat4) Mat4 {
+	// General full matrix multiplication
 	return Mat4{
-		m[0]*other[0] + m[4]*other[1] + m[8]*other[2] + m[12]*other[3],
-		m[1]*other[0] + m[5]*other[1] + m[9]*other[2] + m[13]*other[3],
-		m[2]*other[0] + m[6]*other[1] + m[10]*other[2] + m[14]*other[3],
-		m[3]*other[0] + m[7]*other[1] + m[11]*other[2] + m[15]*other[3],
+		a[0]*b[0] + a[4]*b[1] + a[8]*b[2] + a[12]*b[3],
+		a[1]*b[0] + a[5]*b[1] + a[9]*b[2] + a[13]*b[3],
+		a[2]*b[0] + a[6]*b[1] + a[10]*b[2] + a[14]*b[3],
+		a[3]*b[0] + a[7]*b[1] + a[11]*b[2] + a[15]*b[3],
 
-		m[0]*other[4] + m[4]*other[5] + m[8]*other[6] + m[12]*other[7],
-		m[1]*other[4] + m[5]*other[5] + m[9]*other[6] + m[13]*other[7],
-		m[2]*other[4] + m[6]*other[5] + m[10]*other[6] + m[14]*other[7],
-		m[3]*other[4] + m[7]*other[5] + m[11]*other[6] + m[15]*other[7],
+		a[0]*b[4] + a[4]*b[5] + a[8]*b[6] + a[12]*b[7],
+		a[1]*b[4] + a[5]*b[5] + a[9]*b[6] + a[13]*b[7],
+		a[2]*b[4] + a[6]*b[5] + a[10]*b[6] + a[14]*b[7],
+		a[3]*b[4] + a[7]*b[5] + a[11]*b[6] + a[15]*b[7],
 
-		m[0]*other[8] + m[4]*other[9] + m[8]*other[10] + m[12]*other[11],
-		m[1]*other[8] + m[5]*other[9] + m[9]*other[10] + m[13]*other[11],
-		m[2]*other[8] + m[6]*other[9] + m[10]*other[10] + m[14]*other[11],
-		m[3]*other[8] + m[7]*other[9] + m[11]*other[10] + m[15]*other[11],
+		a[0]*b[8] + a[4]*b[9] + a[8]*b[10] + a[12]*b[11],
+		a[1]*b[8] + a[5]*b[9] + a[9]*b[10] + a[13]*b[11],
+		a[2]*b[8] + a[6]*b[9] + a[10]*b[10] + a[14]*b[11],
+		a[3]*b[8] + a[7]*b[9] + a[11]*b[10] + a[15]*b[11],
 
-		m[0]*other[12] + m[4]*other[13] + m[8]*other[14] + m[12]*other[15],
-		m[1]*other[12] + m[5]*other[13] + m[9]*other[14] + m[13]*other[15],
-		m[2]*other[12] + m[6]*other[13] + m[10]*other[14] + m[14]*other[15],
-		m[3]*other[12] + m[7]*other[13] + m[11]*other[14] + m[15]*other[15],
+		a[0]*b[12] + a[4]*b[13] + a[8]*b[14] + a[12]*b[15],
+		a[1]*b[12] + a[5]*b[13] + a[9]*b[14] + a[13]*b[15],
+		a[2]*b[12] + a[6]*b[13] + a[10]*b[14] + a[14]*b[15],
+		a[3]*b[12] + a[7]*b[13] + a[11]*b[14] + a[15]*b[15],
 	}
 }
 
-// MultiplyVec4 optimized version (unrolled loops)
 func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 	return Vec4{
 		X: v.X*m[0] + v.Y*m[4] + v.Z*m[8] + v.W*m[12],
@@ -208,6 +202,14 @@ func (m Mat4) MultiplyVec4(v Vec4) Vec4 {
 }
 
 func (m Mat4) TransformVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z + m[12],
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z + m[13],
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z + m[14],
+	}
+}
+
+func (m Mat4) TransformDirection(v Vec3) Vec3 {
 	return Vec3{
 		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
 		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
@@ -234,6 +236,27 @@ func Ortho(left, right, bottom, top, near, far float64) Mat4 {
 		2 / (right - left), 0, 0, 0,
 		0, 2 / (top - bottom), 0, 0,
 		0, 0, -2 / (far - near), 0,
-		-(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1,
+		-(right + left) / (right - left),
+		-(top + bottom) / (top - bottom),
+		-(far + near) / (far - near),
+		1,
+	}
+}
+
+// MultiplyVec3 multiplies a 4x4 matrix with a 3D vector (treats it as vec4 with w=0)
+func (m *Mat4) MultiplyVec3(v Vec3) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z,
+	}
+}
+
+// MultiplyVec3WithW multiplies a 4x4 matrix with a 3D vector (with specified w component)
+func (m *Mat4) MultiplyVec3WithW(v Vec3, w float64) Vec3 {
+	return Vec3{
+		X: m[0]*v.X + m[4]*v.Y + m[8]*v.Z + m[12]*w,
+		Y: m[1]*v.X + m[5]*v.Y + m[9]*v.Z + m[13]*w,
+		Z: m[2]*v.X + m[6]*v.Y + m[10]*v.Z + m[14]*w,
 	}
 }

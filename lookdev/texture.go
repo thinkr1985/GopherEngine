@@ -54,7 +54,8 @@ func LoadTexture(filename string) (*Texture, error) {
 
 func (t *Texture) Sample(u, v float64) ColorRGBA {
 	u = u - math.Floor(u)
-	v = v - math.Floor(v)
+	v = 1 - (v - math.Floor(v)) // Flip V coordinate here
+
 	x := int(u * float64(t.Width-1))
 	y := int(v * float64(t.Height-1))
 	x = max(0, min(x, t.Width-1))

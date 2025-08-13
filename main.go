@@ -1,116 +1,95 @@
 package main
 
 import (
-	"GopherEngine/assets"
 	"GopherEngine/core"
 	"GopherEngine/gui"
-	"GopherEngine/lookdev"
 	"math"
 
 	// "GopherEngine/nomath"
-	"log"
+	_ "log"
 	// "math/rand"
 )
 
 func main() {
-	// core.StartCPUProfile()
+	core.StartCPUProfile()
 	scene := core.NewScene()
-	assemby := assets.NewAssembly()
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/NestedTest.asset")
 
-	plane, err := assets.LoadOBJ("objs/ground_plane_small.obj")
-	if err != nil {
-		log.Fatalf("Failed to load OBJ file: %v", err)
-	}
-	ground_tex, err := lookdev.LoadTexture("textures/ground_grid.jpg")
-	if err != nil {
-		log.Printf("Warning: Failed to load texture: %v", err)
-	} else {
-		plane.Material.DiffuseTexture = ground_tex
-	}
-	scene.AddObject(plane)
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeB.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
+	// plane_assembly := assets.NewAssembly()
+	// plane, err := assets.LoadOBJ("objs/ground_plane.obj")
+	// if err != nil {
+	// 	log.Fatalf("Failed to load OBJ file: %v", err)
+	// }
+	// plane.Name = "PlaneMesh"
+	// plane_assembly.Name = "Plane"
+	// plane_assembly.AddGeometry(plane)
 
-	obj, err := assets.LoadOBJ("objs/tree_foliage.obj")
-	if err != nil {
-		log.Fatalf("Failed to load OBJ file: %v", err)
-	}
-	tex_foliage, err := lookdev.LoadTexture("textures/DB2X2_L01.png")
-	if err != nil {
-		log.Printf("Warning: Failed to load texture: %v", err)
-	} else {
-		obj.Material.DiffuseTexture = tex_foliage
-	}
-	spec_foliage, err := lookdev.LoadTexture("textures/DB2X2_L01_Spec.png")
-	if err != nil {
-		log.Printf("Warning: Failed to load texture: %v", err)
-	} else {
-		obj.Material.SpecularTexture = spec_foliage
-	}
+	// scene.AddAssembly(plane_assembly)
 
-	obj.Name = "tree_foliage"
-
-	obj2, err := assets.LoadOBJ("objs/tree_bark.obj")
-	if err != nil {
-		log.Fatalf("Failed to load OBJ file: %v", err)
-	}
-	tex_bark, err := lookdev.LoadTexture("textures/bark_0021.jpg")
-	if err != nil {
-		log.Printf("Warning: Failed to load texture: %v", err)
-	} else {
-		obj2.Material.DiffuseTexture = tex_bark
-	}
-	obj2.Name = "tree_bark"
-	assemby.AddGeometry(obj)
-	assemby.AddGeometry(obj2)
-	scene.AddObject(obj)
-	scene.AddObject(obj2)
-
-	// assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/tree.asset")
-	// assemby.SaveAssembly("StandardTree", "E:/GitHub/GopherEngine/tests")
-	// assembly := assets.NewAssembly()
-	// assembly.LoadAssembly("E:/GitHub/GopherEngine/tests")
-
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
 	/*
-		spawn := 3
-		for i := 0; i < spawn; i++ {
-			obj, err := assets.LoadOBJ("objs/tree_foliage.obj")
-			if err != nil {
-				log.Fatalf("Failed to load OBJ file: %v", err)
-			}
-			tex_foliage, err := lookdev.LoadTexture("textures/DB2X2_L01.png")
-			if err != nil {
-				log.Printf("Warning: Failed to load texture: %v", err)
-			} else {
-				obj.Material.DiffuseTexture = tex_foliage
-			}
-			obj.Transform.SetPosition(nomath.Vec3{X: rand.Float64()*30 - 10, Y: 1, Z: rand.Float64()*20 - 5})
-			obj.Transform.UpdateModelMatrix()
+		assemby := assets.NewAssembly()
+		assemby.Name = "Stones"
 
-			scene.AddObject(obj)
-
-			obj2, err := assets.LoadOBJ("objs/tree_bark.obj")
-			if err != nil {
-				log.Fatalf("Failed to load OBJ file: %v", err)
-			}
-			tex_bark, err := lookdev.LoadTexture("textures/bark_0021.jpg")
-			if err != nil {
-				log.Printf("Warning: Failed to load texture: %v", err)
-			} else {
-				obj2.Material.DiffuseTexture = tex_bark
-			}
-			obj2.Transform.SetPosition(nomath.Vec3{X: rand.Float64()*30 - 10, Y: 1, Z: rand.Float64()*20 - 5})
-			obj2.Transform.UpdateModelMatrix()
-
-			scene.AddObject(obj2)
-		}
-
-		ground_plane, err := assets.LoadOBJ("objs/ground_plane.obj")
+		tree_bark, err := assets.LoadOBJ("objs/stone_a.obj")
 		if err != nil {
 			log.Fatalf("Failed to load OBJ file: %v", err)
 		}
-		scene.AddObject(ground_plane)
+		tree_bark.Material.Shininess = 1.0
+		tree_bark.Material.DiffuseColor = lookdev.ColorRGBA{R: 112, G: 112, B: 112, A: 1}
+		tree_bark.Material.Reflectivity = 0.0
+		tree_bark.Name = "stone_a"
+
+		tree_canopy01, err := assets.LoadOBJ("objs/stone_b.obj")
+		if err != nil {
+			log.Fatalf("Failed to load OBJ file: %v", err)
+		}
+		tree_canopy01.Material.Shininess = 1.0
+		tree_canopy01.Material.DiffuseColor = lookdev.ColorRGBA{R: 120, G: 120, B: 120, A: 1}
+		tree_canopy01.Material.Reflectivity = 0.0
+		tree_canopy01.Name = "stone_b"
+
+		tree_canopy02, err := assets.LoadOBJ("objs/stone_c.obj")
+		if err != nil {
+			log.Fatalf("Failed to load OBJ file: %v", err)
+		}
+		tree_canopy02.Material.Shininess = 1.0
+		tree_canopy02.Material.DiffuseColor = lookdev.ColorRGBA{R: 80, G: 80, B: 80, A: 1}
+		tree_canopy02.Material.Reflectivity = 0.0
+		tree_canopy02.Name = "stone_c"
+
+		tree_canopy03, err := assets.LoadOBJ("objs/stone_d.obj")
+		if err != nil {
+			log.Fatalf("Failed to load OBJ file: %v", err)
+		}
+		tree_canopy03.Material.Shininess = 1.0
+		tree_canopy03.Material.DiffuseColor = lookdev.ColorRGBA{R: 112, G: 112, B: 112, A: 1}
+		tree_canopy03.Material.Reflectivity = 0.0
+		tree_canopy03.Name = "stone_c"
+
+		// ground_tex, err := lookdev.LoadTexture("textures/CarBTexture.png")
+		// if err != nil {
+		// 	log.Printf("Warning: Failed to load texture: %v", err)
+		// } else {
+		// 	plane.Material.DiffuseTexture = ground_tex
+		// }
+
+		assemby.AddGeometry(tree_bark)
+		assemby.AddGeometry(tree_canopy01)
+		assemby.AddGeometry(tree_canopy02)
+		assemby.AddGeometry(tree_canopy03)
+
+		scene.AddAssembly(assemby)
+		assets.AssetExport(assemby, "E:/GitHub/GopherEngine/tests/Stones.asset")
 	*/
-	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(25)*1.0
+
+	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(10)*1.0
 	scene.DefaultLight.Transform.Dirty = true
 	gui.Window(scene)
-	// core.StopCPUProfile()
+	core.StopCPUProfile()
 }

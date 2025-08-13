@@ -16,15 +16,19 @@ type Geometry struct {
 	Triangles   []*Triangle
 	BoundingBox *nomath.BoundingBox
 	Material    *lookdev.Material
+	IsVisible   bool
+	SoftNormals bool
 }
 
 func (g *Geometry) NewGeometry() *Geometry {
 	geo := &Geometry{
-		Name:        "Object001",
+		Name:        utilities.GenerateID(),
 		ID:          utilities.GenerateUniqueID(),
 		Transform:   nomath.NewTransform(),
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial("DefaultMaterial"),
+		IsVisible:   true,
+		SoftNormals: true,
 	}
 	geo.ComputeBoundingBox()
 	return geo
@@ -32,12 +36,15 @@ func (g *Geometry) NewGeometry() *Geometry {
 
 func (g *Geometry) Update() {
 	if g.Transform.Dirty {
-		g.Transform.Mutex.Lock()
-		defer g.Transform.Mutex.Unlock()
+		// g.Transform.Mutex.Lock()
+		// defer g.Transform.Mutex.Unlock()
 		g.Transform.UpdateModelMatrix()
 		g.ComputeTransformedBoundingBox()
 		g.Transform.Dirty = false
 	}
+	// 	for _, tri := range g.Triangles {
+	// 		tri.Update()
+	// 	}
 }
 
 func (g *Geometry) ComputeBoundingBox() {

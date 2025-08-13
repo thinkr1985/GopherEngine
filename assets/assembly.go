@@ -11,6 +11,7 @@ type Assembly struct {
 	Name        string
 	ID          string
 	isDynamic   bool
+	References  []*AssetReference
 	Geometries  []*Geometry
 	Materials   []*lookdev.Material
 	Textures    []*lookdev.Texture
@@ -23,6 +24,7 @@ type Assembly struct {
 
 func NewAssembly() *Assembly {
 	a := Assembly{
+		Name:        utilities.GenerateID(),
 		ID:          utilities.GenerateUniqueID(),
 		isDynamic:   false,
 		IsVisible:   true,
@@ -54,6 +56,17 @@ func (a *Assembly) AddGeometry(geom *Geometry) {
 	a.Vertices = append(a.Vertices, geom.Vertices...)
 	a.Materials = append(a.Materials, geom.Material)
 	a.ComputeBoundingBox()
+}
+
+func (a *Assembly) AddReference(name string, file_path string) {
+	reference := NewAssetReference(name, file_path)
+	a.References = append(a.References, reference)
+}
+
+func (a *Assembly) LoadReference() {
+	for _, ref := range a.References {
+		ref.LoadReference()
+	}
 }
 
 func (a *Assembly) ClearGeometries() {

@@ -14,8 +14,10 @@ import (
 var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
 var isFirstFrame = true
+var display_debug_screen = false
 
 func initWindow() {
+
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -25,7 +27,7 @@ func initWindow() {
 	rl.SetWindowIcon(*icon)
 	rl.UnloadImage(icon)
 
-	rl.SetTargetFPS(120)
+	rl.SetTargetFPS(240)
 
 }
 
@@ -34,13 +36,21 @@ func Window(scene *core.Scene) {
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
-	// Initialize resolution scaling
+	// Initialize resolution scaling with proper window dimensions
 	scene.ResolutionScale = 1.0
 	scene.AutoResolution = false
 	scene.LastFPS = 60
 	scene.MinResolutionScale = 0.5
 	scene.LastScaleChange = rl.GetTime()
 	scene.FPSHistory = make([]int, 0, 10)
+
+	// Get initial window size and set up renderer
+	initialWidth := max(300, int(rl.GetScreenWidth()))
+	initialHeight := max(200, int(rl.GetScreenHeight()))
+	core.SCREEN_WIDTH = initialWidth
+	core.SCREEN_HEIGHT = initialHeight
+
+	// Initialize renderer with correct size
 
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
@@ -62,7 +72,6 @@ func Window(scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.PixelFormat(7),
 	})
-	rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -90,7 +99,7 @@ func Window(scene *core.Scene) {
 		HandleInputEvents(scene)
 
 		// Render 3D
-		scene.RenderOnThread()
+		scene.Render()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -108,7 +117,6 @@ func Window(scene *core.Scene) {
 				Mipmaps: 1,
 				Format:  rl.PixelFormat(7),
 			})
-			rl.SetTextureFilter(fullResTex, rl.FilterBilinear)
 		} else {
 			// Update existing texture
 			rl.UpdateTexture(fullResTex, rgbaSlice)
@@ -116,7 +124,7 @@ func Window(scene *core.Scene) {
 
 		// Draw everything
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.DarkGray)
+		rl.ClearBackground(rl.DarkBlue)
 
 		rl.DrawTexturePro(
 			fullResTex,
@@ -129,6 +137,7 @@ func Window(scene *core.Scene) {
 
 		rl.DrawFPS(20, 20)
 		draw_debug_stats(scene)
+		draw_threading_status(scene)
 		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
 
 		rl.EndDrawing()
@@ -174,17 +183,12 @@ func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
 	scene.ResolutionScale = math.Max(scene.MinResolutionScale,
 		math.Min(1.0, scene.ResolutionScale))
 
-	// Resize will happen in next handleWindowResize call
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 func draw_debug_stats(scene *core.Scene) {
+	if !display_debug_screen {
+		return
+	}
 	avgFPS := 0
 	if len(scene.FPSHistory) > 0 {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
@@ -198,22 +202,35 @@ func draw_debug_stats(scene *core.Scene) {
 		scene.TargetResolutionScale*100,
 		scene.AutoResolution,
 		scene.DrawnTriangles,
-		len(scene.Triangles),
+		scene.TotalTriangleCounter,
 		scene.Renderer.CPU,
 		scene.Renderer.GPU)
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+100, 180, rl.NewColor(0, 0, 0, 30))
+	rl.DrawRectangle(10, 10, textWidth+100, 190, rl.NewColor(0, 0, 0, 30))
 	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
 
 	// Show scaling info if in auto mode
 	if scene.AutoResolution {
 		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
-		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 170), 12, 2, rl.LightGray)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 180), 12, 2, rl.LightGray)
 	}
 }
 
+func draw_threading_status(scene *core.Scene) {
+	thread_text := fmt.Sprintf("Multi-Threading (F3) : %v", scene.Renderer.MultiThreading)
+
+	rl.DrawTextEx(
+		debugFont, thread_text,
+		rl.NewVector2(float32(rl.GetRenderWidth()-300), float32(rl.GetRenderHeight()/12)),
+		12, 2, rl.White)
+
+}
+
 func drawKeyboardOverlay(tex rl.Texture2D) {
+	if !display_debug_screen {
+		return
+	}
 	x := 20
 	y := rl.GetScreenHeight() - int(tex.Height) - 20
 	rl.DrawTexture(tex, int32(x), int32(y), rl.White)

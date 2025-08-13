@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v4/cpu"
 )
 
 func GetCPU() string {
@@ -21,12 +21,26 @@ func GetCPU() string {
 		panic(err)
 	}
 
-	cpu := "UnKnownCPU"
+	cpu_name := "UnKnownCPU"
 	for _, ci := range info {
-		cpu = ci.ModelName
+		cpu_name = ci.ModelName
 		break
 	}
-	return cpu
+
+	// Logical
+	logical, err := cpu.Counts(true)
+	if err != nil {
+		logical = 0
+	}
+
+	// Physical
+	physical, err := cpu.Counts(false)
+	if err != nil {
+		physical = 0
+	}
+
+	cpu_name = fmt.Sprintf("%v\nProcessors : (Logical : %v, Physical : %v)", cpu_name, logical, physical)
+	return cpu_name
 }
 
 // GetGPU returns the names of all video controllers (GPUs)
