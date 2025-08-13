@@ -21,6 +21,7 @@ type SerializableAssembly struct {
 	IsVisible  bool                         `json:"is_visible"`
 	Transform  nomath.SerializableTransform `json:"transform"`
 	Geometries []SerializableGeomRef        `json:"geometries"`
+	References []SerializableReference      `json:"references"`
 }
 
 type SerializableGeomRef struct {
@@ -31,6 +32,11 @@ type SerializableGeomRef struct {
 	Transform   nomath.SerializableTransform `json:"transform"`
 	IsVisible   bool                         `json:"IsVisible"`
 	SoftNormals bool                         `json:"IsViSoftNormalssible"`
+}
+
+type SerializableReference struct {
+	Name     string `json:"name"`
+	FilePath string `json:"file_path"`
 }
 
 // --- Transform Conversion ---
@@ -140,6 +146,14 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 		}(),
 	}
 
+	for _, reference := range out.References {
+		out_ref := SerializableReference{
+			Name:     reference.Name,
+			FilePath: reference.FilePath,
+		}
+		out.References = append(out.References, out_ref)
+	}
+
 	for _, geom := range a.Geometries {
 		// Export geometry as .obj
 		objFile, err := exportGeometryAsOBJ(geom, folderPath)
@@ -240,6 +254,14 @@ func (a *Assembly) LoadAssembly(path string) {
 	a.Transform.UpdateModelMatrix()
 
 	assemblyDir := filepath.Dir(path)
+
+	var refs []*AssetReference
+	for _, ref := range saved.References {
+		reference := NewAssetReference(ref.Name, ref.FilePath)
+		refs = append(refs, reference)
+	}
+
+	a.References = append(a.References, refs...)
 
 	for _, sGeom := range saved.Geometries {
 		objPath := filepath.Join(assemblyDir, sGeom.OBJPath)

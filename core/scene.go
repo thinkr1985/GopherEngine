@@ -83,8 +83,8 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-	s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
-	s.DefaultLight.Transform.Dirty = true
+	// s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
+	// s.DefaultLight.Transform.Dirty = true
 	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
 	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
@@ -111,6 +111,14 @@ func (s *Scene) UpdateScene() {
 func (s *Scene) AddAssembly(assembly *assets.Assembly) {
 	s.Assemblies = append(s.Assemblies, assembly)
 	s.Triangles = append(s.Triangles, assembly.Triangles...)
+
+	if len(assembly.References) > 0 {
+		for _, reference := range assembly.References {
+			reference.LoadReference()
+			s.AddAssembly(reference.Assembly)
+
+		}
+	}
 }
 
 func (s *Scene) LoadAsset(asset_path string) {

@@ -56,7 +56,7 @@ func NewRenderer3D() *Renderer3D {
 		FogEnabled:     false,
 		FogColor:       lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
 		FogDensity:     0.05,
-		FogStart:       5.0,
+		FogStart:       10.0,
 		FogEnd:         500.0,
 		DOFEnabled:     false,
 		DOFFocusDepth:  0.4,

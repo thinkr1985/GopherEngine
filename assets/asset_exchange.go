@@ -47,6 +47,12 @@ type PackedAssembly struct {
 	Transform  nomath.SerializableTransform
 	Geometries []PackedGeometry
 	Textures   []PackedTexture
+	References []PackedReference
+}
+
+type PackedReference struct {
+	Name     string
+	FilePath string
 }
 
 // --- Asset Exporter ---
@@ -62,6 +68,13 @@ func AssetExport(assembly *Assembly, path string) error {
 		Transform: assembly.Transform.ToSerializable(),
 	}
 
+	for _, reference := range assembly.References {
+		packed_reference := PackedReference{
+			Name:     reference.Name,
+			FilePath: reference.FilePath,
+		}
+		packed.References = append(packed.References, packed_reference)
+	}
 	for _, geom := range assembly.Geometries {
 		var packedTris []PackedTriangle
 		for _, tri := range geom.Triangles {
@@ -202,12 +215,23 @@ func AssetImport(path string) (*Assembly, error) {
 	}
 
 	// Ensure assembly slices are initialized
+	if a.References == nil {
+		a.References = make([]*AssetReference, 0)
+	}
 	if a.Geometries == nil {
 		a.Geometries = make([]*Geometry, 0)
 	}
 	if a.Triangles == nil {
 		a.Triangles = make([]*Triangle, 0)
 	}
+
+	var refs []*AssetReference
+	for _, ref := range packed.References {
+		reference := NewAssetReference(ref.Name, ref.FilePath)
+		refs = append(refs, reference)
+	}
+
+	a.References = append(a.References, refs...)
 
 	for _, g := range packed.Geometries {
 		// Convert PackedTriangle -> Triangle (without mutexes)

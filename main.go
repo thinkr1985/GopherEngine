@@ -1,10 +1,8 @@
 package main
 
 import (
-	"GopherEngine/assets"
 	"GopherEngine/core"
 	"GopherEngine/gui"
-	"log"
 	"math"
 
 	// "GopherEngine/nomath"
@@ -17,19 +15,21 @@ func main() {
 	scene := core.NewScene()
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+	scene.LoadAsset("E:/GitHub/GopherEngine/tests/NestedTest.asset")
+
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeB.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
-	plane_assembly := assets.NewAssembly()
-	plane, err := assets.LoadOBJ("objs/ground_plane.obj")
-	if err != nil {
-		log.Fatalf("Failed to load OBJ file: %v", err)
-	}
-	plane.Name = "PlaneMesh"
-	plane_assembly.Name = "Plane"
-	plane_assembly.AddGeometry(plane)
-	scene.AddAssembly(plane_assembly)
+	// plane_assembly := assets.NewAssembly()
+	// plane, err := assets.LoadOBJ("objs/ground_plane.obj")
+	// if err != nil {
+	// 	log.Fatalf("Failed to load OBJ file: %v", err)
+	// }
+	// plane.Name = "PlaneMesh"
+	// plane_assembly.Name = "Plane"
+	// plane_assembly.AddGeometry(plane)
+
+	// scene.AddAssembly(plane_assembly)
 
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
 	/*
