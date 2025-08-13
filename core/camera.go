@@ -9,27 +9,34 @@ import (
 var frustumMutex sync.Mutex
 
 type PerspectiveCamera struct {
-	Name          string
-	Scene         *Scene
-	Transform     *nomath.Transform
-	FocalLength   int
-	NearPlane     float64
-	FarPlane      float64
-	frustumPlanes [6]nomath.Vec4 // Stores precomputed frustum planes
-	DirtyFrustum  bool           // Flag to avoid recalculating planes unnecessarily
-	mutex         sync.Mutex
+	Name                   string
+	Scene                  *Scene
+	Transform              *nomath.Transform
+	FocalLength            int
+	NearPlane              float64
+	FarPlane               float64
+	frustumPlanes          [6]nomath.Vec4 // Stores precomputed frustum planes
+	DirtyFrustum           bool           // Flag to avoid recalculating planes unnecessarily
+	mutex                  sync.Mutex
+	Target                 nomath.Vec3 // New field for camera target
+	cachedProjectionMatrix nomath.Mat4
+	cachedViewProjMatrix   nomath.Mat4
+	cachedViewMatrix       nomath.Mat4
 }
 
 func NewPerspectiveCamera() *PerspectiveCamera {
 	cam := &PerspectiveCamera{
 		Transform:    nomath.NewTransform(),
-		FocalLength:  75,     // Reasonable default
+		FocalLength:  50,     // Reasonable default
 		NearPlane:    0.01,   // Should be > 0
 		FarPlane:     1000.0, // Large enough to see distant objects
 		DirtyFrustum: true,
+		Target:       nomath.Vec3{Z: -1}, // Default forward direction
 	}
 	cam.Transform.Position = nomath.Vec3{Z: 10, Y: 10} // Start 10 units back
 	cam.Transform.Dirty = true
+	cam.Update()
+
 	return cam
 }
 
@@ -46,9 +53,10 @@ const (
 // GetViewMatrix returns the camera's view matrix
 func (c *PerspectiveCamera) GetViewMatrix() nomath.Mat4 {
 	c.Transform.UpdateModelMatrix()
-	view := c.Transform.GetMatrix().Inverse()
-	c.DirtyFrustum = true // View matrix changed, need to update planes
-	return view
+	eye := c.Transform.Position
+	target := eye.Add(c.Transform.GetForward())
+	up := c.Transform.GetUp()
+	return nomath.LookAtMatrix(eye, target, up)
 }
 
 // GetProjectionMatrix returns the camera's projection matrix
@@ -174,10 +182,17 @@ func (c *PerspectiveCamera) CacheMatrices() {
 	c.Scene.cachedViewProjMatrix = viewProjMatrix
 	c.DirtyFrustum = false
 }
+
 func (c *PerspectiveCamera) Update() {
 	c.mutex.Lock()
+	c.cachedViewMatrix = c.GetViewMatrix()
+	c.cachedProjectionMatrix = c.GetProjectionMatrix()
+	c.cachedViewProjMatrix = c.cachedProjectionMatrix.Multiply(c.cachedViewMatrix)
+
+	c.Transform.Dirty = true
+	c.DirtyFrustum = false
+	c.Transform.UpdateModelMatrix()
+	c.UpdateFrustumPlanes()
 	defer c.mutex.Unlock()
 
-	c.Transform.UpdateModelMatrix()
-	c.CacheMatrices() // This updates view and projection matrices
 }

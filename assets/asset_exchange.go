@@ -27,15 +27,16 @@ type PackedTriangle struct {
 }
 
 type PackedGeometry struct {
-	ID        string
-	Name      string
-	IsVisible bool
-	Vertices  []*nomath.Vec3
-	Normals   []*nomath.Vec3
-	UVs       []*nomath.Vec2
-	Triangles []PackedTriangle
-	Material  lookdev.SerializableMaterial
-	Transform nomath.SerializableTransform
+	ID          string
+	Name        string
+	IsVisible   bool
+	Vertices    []*nomath.Vec3
+	Normals     []*nomath.Vec3
+	UVs         []*nomath.Vec2
+	Triangles   []PackedTriangle
+	Material    lookdev.SerializableMaterial
+	Transform   nomath.SerializableTransform
+	SoftNormals bool
 }
 
 type PackedAssembly struct {
@@ -46,6 +47,12 @@ type PackedAssembly struct {
 	Transform  nomath.SerializableTransform
 	Geometries []PackedGeometry
 	Textures   []PackedTexture
+	References []PackedReference
+}
+
+type PackedReference struct {
+	Name     string
+	FilePath string
 }
 
 // --- Asset Exporter ---
@@ -61,6 +68,13 @@ func AssetExport(assembly *Assembly, path string) error {
 		Transform: assembly.Transform.ToSerializable(),
 	}
 
+	for _, reference := range assembly.References {
+		packed_reference := PackedReference{
+			Name:     reference.Name,
+			FilePath: reference.FilePath,
+		}
+		packed.References = append(packed.References, packed_reference)
+	}
 	for _, geom := range assembly.Geometries {
 		var packedTris []PackedTriangle
 		for _, tri := range geom.Triangles {
@@ -72,13 +86,14 @@ func AssetExport(assembly *Assembly, path string) error {
 		}
 
 		packedGeo := PackedGeometry{
-			ID:        geom.ID,
-			IsVisible: geom.IsVisible,
-			Name:      geom.Name,
-			Vertices:  geom.Vertices,
-			Normals:   geom.Normals,
-			UVs:       geom.UVs,
-			Triangles: packedTris,
+			ID:          geom.ID,
+			IsVisible:   geom.IsVisible,
+			Name:        geom.Name,
+			Vertices:    geom.Vertices,
+			Normals:     geom.Normals,
+			UVs:         geom.UVs,
+			Triangles:   packedTris,
+			SoftNormals: geom.SoftNormals,
 			Material: lookdev.SerializableMaterial{
 				Name:           geom.Material.Name,
 				DiffuseColor:   geom.Material.DiffuseColor,
@@ -200,12 +215,23 @@ func AssetImport(path string) (*Assembly, error) {
 	}
 
 	// Ensure assembly slices are initialized
+	if a.References == nil {
+		a.References = make([]*AssetReference, 0)
+	}
 	if a.Geometries == nil {
 		a.Geometries = make([]*Geometry, 0)
 	}
 	if a.Triangles == nil {
 		a.Triangles = make([]*Triangle, 0)
 	}
+
+	var refs []*AssetReference
+	for _, ref := range packed.References {
+		reference := NewAssetReference(ref.Name, ref.FilePath)
+		refs = append(refs, reference)
+	}
+
+	a.References = append(a.References, refs...)
 
 	for _, g := range packed.Geometries {
 		// Convert PackedTriangle -> Triangle (without mutexes)
@@ -227,14 +253,15 @@ func AssetImport(path string) (*Assembly, error) {
 		}
 
 		geom := &Geometry{
-			ID:        g.ID,
-			Name:      g.Name,
-			Vertices:  g.Vertices,
-			Normals:   g.Normals,
-			UVs:       g.UVs,
-			Triangles: tris,
-			IsVisible: g.IsVisible,
-			Transform: FromSerializableTransform(g.Transform),
+			ID:          g.ID,
+			Name:        g.Name,
+			Vertices:    g.Vertices,
+			Normals:     g.Normals,
+			UVs:         g.UVs,
+			Triangles:   tris,
+			IsVisible:   g.IsVisible,
+			SoftNormals: g.SoftNormals,
+			Transform:   FromSerializableTransform(g.Transform),
 		}
 		if geom.Transform == nil {
 			geom.Transform = nomath.NewTransform()

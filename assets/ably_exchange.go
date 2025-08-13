@@ -21,15 +21,22 @@ type SerializableAssembly struct {
 	IsVisible  bool                         `json:"is_visible"`
 	Transform  nomath.SerializableTransform `json:"transform"`
 	Geometries []SerializableGeomRef        `json:"geometries"`
+	References []SerializableReference      `json:"references"`
 }
 
 type SerializableGeomRef struct {
-	ID        string                       `json:"id"`
-	Name      string                       `json:"name"`
-	OBJPath   string                       `json:"obj_path"`
-	Material  lookdev.SerializableMaterial `json:"material"`
-	Transform nomath.SerializableTransform `json:"transform"`
-	IsVisible bool                         `json:"IsVisible"`
+	ID          string                       `json:"id"`
+	Name        string                       `json:"name"`
+	OBJPath     string                       `json:"obj_path"`
+	Material    lookdev.SerializableMaterial `json:"material"`
+	Transform   nomath.SerializableTransform `json:"transform"`
+	IsVisible   bool                         `json:"IsVisible"`
+	SoftNormals bool                         `json:"IsViSoftNormalssible"`
+}
+
+type SerializableReference struct {
+	Name     string `json:"name"`
+	FilePath string `json:"file_path"`
 }
 
 // --- Transform Conversion ---
@@ -139,6 +146,14 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 		}(),
 	}
 
+	for _, reference := range out.References {
+		out_ref := SerializableReference{
+			Name:     reference.Name,
+			FilePath: reference.FilePath,
+		}
+		out.References = append(out.References, out_ref)
+	}
+
 	for _, geom := range a.Geometries {
 		// Export geometry as .obj
 		objFile, err := exportGeometryAsOBJ(geom, folderPath)
@@ -160,8 +175,9 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 				Reflectivity:   geom.Material.Reflectivity,
 				NormalStrength: geom.Material.NormalStrength,
 			},
-			Transform: geom.Transform.ToSerializable(),
-			IsVisible: geom.IsVisible,
+			Transform:   geom.Transform.ToSerializable(),
+			IsVisible:   geom.IsVisible,
+			SoftNormals: geom.SoftNormals,
 		}
 
 		if geom.Material.DiffuseTexture != nil {
@@ -239,6 +255,14 @@ func (a *Assembly) LoadAssembly(path string) {
 
 	assemblyDir := filepath.Dir(path)
 
+	var refs []*AssetReference
+	for _, ref := range saved.References {
+		reference := NewAssetReference(ref.Name, ref.FilePath)
+		refs = append(refs, reference)
+	}
+
+	a.References = append(a.References, refs...)
+
 	for _, sGeom := range saved.Geometries {
 		objPath := filepath.Join(assemblyDir, sGeom.OBJPath)
 
@@ -250,6 +274,7 @@ func (a *Assembly) LoadAssembly(path string) {
 
 		geom.ID = sGeom.ID
 		geom.Name = sGeom.Name
+		geom.SoftNormals = sGeom.SoftNormals
 		geom.Material = &lookdev.Material{
 			Name:           sGeom.Material.Name,
 			DiffuseColor:   sGeom.Material.DiffuseColor,

@@ -7,7 +7,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
-	"sync/atomic"
+	// "sync/atomic"
 )
 
 var UNIQUE_NAMES []string
@@ -15,11 +15,12 @@ var SCREEN_WIDTH int = 854
 var SCREEN_HEIGHT int = 480
 
 type RenderTask struct {
-	Triangle     *assets.Triangle
-	MVP          nomath.Mat4
-	NormalMatrix nomath.Mat4 // For normal transformations
-	ModelMatrix  nomath.Mat4 // For world position calculations
-	LightDots    []float64   // Precomputed light factors
+	Triangle       *assets.Triangle
+	MVP            nomath.Mat4
+	NormalMatrix   nomath.Mat4   // For normal transformations
+	ModelMatrix    nomath.Mat4   // For world position calculations
+	LightDots      []float64     // Precomputed light factors
+	ShadowMatrices []nomath.Mat4 // One per shadow-casting light
 }
 
 type Scene struct {
@@ -82,10 +83,16 @@ func NewScene() *Scene {
 }
 
 func (s *Scene) UpdateScene() {
-	s.DefaultLight.Transform.Rotation.X += 0.1 + math.Sin(25)*1.0
-	s.DefaultLight.Transform.Dirty = true
+	// s.DefaultLight.Transform.Rotation.X += 0. + math.Sin(0.2)*0.1
+	// s.DefaultLight.Transform.Dirty = true
+	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
+	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
+	// s.Camera.DirtyFrustum = true
+	// s.Camera.Transform.Dirty = true
+	s.matrixMutex.Lock()
 	s.Camera.Update()
+	s.matrixMutex.Unlock()
 
 	// Update lights
 	for _, light := range s.Lights {
@@ -104,6 +111,14 @@ func (s *Scene) UpdateScene() {
 func (s *Scene) AddAssembly(assembly *assets.Assembly) {
 	s.Assemblies = append(s.Assemblies, assembly)
 	s.Triangles = append(s.Triangles, assembly.Triangles...)
+
+	if len(assembly.References) > 0 {
+		for _, reference := range assembly.References {
+			reference.LoadReference()
+			s.AddAssembly(reference.Assembly)
+
+		}
+	}
 }
 
 func (s *Scene) LoadAsset(asset_path string) {
@@ -123,38 +138,58 @@ func (s *Scene) LoadAssembly(assembly_path string) {
 
 }
 
-func (s *Scene) RenderScene() {
+func (s *Scene) Render() {
+	s.TotalTriangleCounter = 0
 	s.DrawnTriangles = 0
 	s.UpdateScene()
 
-	// Drawing scene elements firsst!
-	s.Grid.Draw(s.Renderer, s.Camera)
-	s.ViewAxes.Draw(s.Renderer, s.Camera)
+	// Clear shadow maps (now done in parallel with rendering)
 	for _, light := range s.Lights {
 		light.DrawLight()
-	}
+		if light.Shadows && light.ShadowMap != nil {
+			// Clear in parallel chunks
+			var clearWg sync.WaitGroup
+			rowsPerWorker := light.ShadowMap.Height / runtime.NumCPU()
 
-	// Rendering a scene
-	s.matrixMutex.Lock()
-	s.cachedViewMatrix = s.Camera.GetViewMatrix()
-	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
-	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
+			for i := 0; i < runtime.NumCPU(); i++ {
+				clearWg.Add(1)
+				start := i * rowsPerWorker
+				end := start + rowsPerWorker
+				if i == runtime.NumCPU()-1 {
+					end = light.ShadowMap.Height
+				}
 
-	s.matrixMutex.Unlock()
-
-	// Render shadow maps first
-	for _, light := range s.Lights {
-		if light.Shadows {
-			s.Renderer.RenderShadowMap(light, s)
+				go func(start, end int) {
+					defer clearWg.Done()
+					for y := start; y < end; y++ {
+						for x := 0; x < light.ShadowMap.Width; x++ {
+							light.ShadowMap.Depth[y][x] = math.MaxFloat64
+						}
+					}
+				}(start, end)
+			}
+			clearWg.Wait()
 		}
 	}
 
+	// Drawing scene elements
+	s.ViewAxes.Draw(s.Renderer, s.Camera)
 	viewDir := s.Camera.Transform.GetForward()
-	viewProjMatrix := s.cachedViewProjMatrix
+
+	if s.Renderer.MultiThreading {
+		s.RenderOnThreads(viewDir)
+	} else {
+		s.RenderScene(viewDir)
+	}
+}
+
+func (s *Scene) RenderScene(viewDir nomath.Vec3) {
+
+	viewProjMatrix := s.Camera.cachedViewProjMatrix
 
 	// Precompute light dot normal per triangle
 	for _, assembly := range s.Assemblies {
-
+		s.TotalTriangleCounter += int32(len(assembly.Triangles))
 		if !assembly.IsVisible {
 			continue
 		}
@@ -164,13 +199,16 @@ func (s *Scene) RenderScene() {
 				continue
 			}
 
+			modelMatrix := geom.Transform.GetMatrix()
+			mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
+			normalMatrix := modelMatrix.Inverse().Transpose()
+
 			for _, triangle := range geom.Triangles {
+				// Backface culling
 				if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
 					continue
 				}
-				modelMatrix := geom.Transform.GetMatrix()
-				mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
-				normalMatrix := modelMatrix.Inverse().Transpose()
+
 				// Transform triangle normal using normalMatrix
 				worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
 				triangle.WorldNormal = worldNormal
@@ -178,75 +216,52 @@ func (s *Scene) RenderScene() {
 				// Precompute light dot normal for each light
 				triangle.LightDotNormals = make([]float64, len(s.Lights))
 				for i, light := range s.Lights {
-					lightDir := light.GetDirection() // assuming normalized direction
-					triangle.LightDotNormals[i] = max(0, worldNormal.Dot(lightDir))
+					triangle.LightDotNormals[i] = max(0, worldNormal.Dot(s.Renderer.precomputedLightDirs[i]))
+
+					// Render to shadow maps
+					if light.Shadows && light.ShadowMap != nil {
+						shadowMVP := light.LightVp.Multiply(modelMatrix)
+						s.Renderer.renderShadowTriangle(&shadowMVP, triangle, light)
+					}
 				}
 
 				s.Renderer.RenderTriangle(&mvpMatrix, &modelMatrix, s.Camera, triangle, s.Lights, s)
-				s.DrawnTriangles++
+
 			}
 		}
 	}
 }
-func (s *Scene) RenderOnThreads() {
-	// First update all scene elements and matrices
-	s.UpdateScene()
-	atomic.StoreInt32(&s.DrawnTriangles, 0)
 
-	// Update and cache matrices with write lock
-	s.matrixMutex.Lock()
-	s.cachedViewMatrix = s.Camera.GetViewMatrix()
-	s.cachedProjectionMatrix = s.Camera.GetProjectionMatrix()
-	s.cachedViewProjMatrix = s.cachedProjectionMatrix.Multiply(s.cachedViewMatrix)
-	s.matrixMutex.Unlock()
-
-	// Render shadow maps first (single-threaded)
-	for _, light := range s.Lights {
-		if light.Shadows && light.ShadowMap != nil {
-			s.Renderer.RenderShadowMap(light, s)
-		}
-	}
-
-	// Draw overlays
-	// s.Grid.Draw(s.Renderer, s.Camera)
-	// s.ViewAxes.Draw(s.Renderer, s.Camera)
-	for _, light := range s.Lights {
-		light.DrawLight()
-	}
-
-	// Get view direction (after matrix updates)
-	viewDir := s.Camera.Transform.GetForward()
-
+func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 	// Worker pool setup
 	numWorkers := runtime.NumCPU()
 	workChan := make(chan RenderTask, numWorkers*4)
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
 
-	// Worker function
+	// Worker function that handles both main rendering and shadows
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			defer wg.Done()
-			var localCount int32
-
 			for task := range workChan {
 				tri := task.Triangle
 
-				// Precompute light dot products for this triangle
-				for li, light := range s.Lights {
-					task.LightDots[li] = max(0, tri.WorldNormal.Dot(light.GetDirection()))
+				// Render to shadow maps first
+				for i, light := range s.Lights {
+					if light.Shadows && light.ShadowMap != nil {
+						s.Renderer.renderShadowTriangle(&task.ShadowMatrices[i], tri, light)
+					}
 				}
 
-				// Render the triangle using the correct matrices
+				// Then render to main framebuffer
 				s.Renderer.RenderTriangle(&task.MVP, &task.ModelMatrix, s.Camera, tri, s.Lights, s)
-				localCount++
 			}
-			atomic.AddInt32(&s.DrawnTriangles, localCount)
 		}()
 	}
 
-	// Traverse scene and stream triangles to workers
+	// Traverse scene and create tasks
 	for _, assembly := range s.Assemblies {
+		s.TotalTriangleCounter += int32(len(assembly.Triangles))
 		if !assembly.IsVisible {
 			continue
 		}
@@ -257,8 +272,15 @@ func (s *Scene) RenderOnThreads() {
 			}
 
 			modelMatrix := geom.Transform.GetMatrix()
-			mvpMatrix := s.cachedViewProjMatrix.Multiply(modelMatrix)
-			normalMatrix := modelMatrix.Inverse().Transpose()
+			mvpMatrix := s.Camera.cachedViewProjMatrix.Multiply(modelMatrix)
+
+			// Precompute shadow matrices for all lights
+			shadowMatrices := make([]nomath.Mat4, len(s.Lights))
+			for i, light := range s.Lights {
+				if light.Shadows && light.ShadowMap != nil {
+					shadowMatrices[i] = light.LightVp.Multiply(modelMatrix)
+				}
+			}
 
 			for _, tri := range geom.Triangles {
 				// Backface culling
@@ -266,23 +288,11 @@ func (s *Scene) RenderOnThreads() {
 					continue
 				}
 
-				// Update world normal
-				tri.WorldNormal = normalMatrix.TransformVec3(tri.Normal()).Normalize()
-
-				// Reuse light dots slice
-				if cap(tri.LightDotNormals) < len(s.Lights) {
-					tri.LightDotNormals = make([]float64, len(s.Lights))
-				} else {
-					tri.LightDotNormals = tri.LightDotNormals[:len(s.Lights)]
-				}
-
-				// Push to worker
 				workChan <- RenderTask{
-					Triangle:     tri,
-					MVP:          mvpMatrix,
-					NormalMatrix: normalMatrix,
-					ModelMatrix:  modelMatrix,
-					LightDots:    tri.LightDotNormals,
+					Triangle:       tri,
+					MVP:            mvpMatrix,
+					ModelMatrix:    modelMatrix,
+					ShadowMatrices: shadowMatrices,
 				}
 			}
 		}

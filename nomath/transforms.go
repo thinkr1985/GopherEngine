@@ -7,21 +7,29 @@ import (
 
 // Coordinate system: Y+ up, Z+ forward, X+ left (right-handed)
 type Transform struct {
-	Position    Vec3 // Position in world space
-	Rotation    Vec3 // Euler angles in radians (order: YXZ - yaw, pitch, roll)
-	Scale       Vec3 // Scale factors
-	ModelMatrix Mat4
-	Dirty       bool // track whether transform changed
-	Mutex       sync.RWMutex
+	Position       Vec3 // Position in world space
+	Rotation       Vec3 // Euler angles in radians (order: YXZ - yaw, pitch, roll)
+	Scale          Vec3 // Scale factors
+	ModelMatrix    Mat4
+	RotationMatrix Mat4
+	Forward        Vec3
+	Right          Vec3
+	Up             Vec3
+	Dirty          bool // track whether transform changed
+	Mutex          sync.RWMutex
 }
 
 // NewTransform creates a new Transform with default values
 func NewTransform() *Transform {
 	return &Transform{
-		Position:    Vec3{X: 0, Y: 0, Z: 0},
-		Rotation:    Vec3{X: 0, Y: 0, Z: 0},
-		Scale:       Vec3{X: 1, Y: 1, Z: 1},
-		ModelMatrix: IdentityMatrix(),
+		Position:       Vec3{X: 0, Y: 0, Z: 0},
+		Rotation:       Vec3{X: 0, Y: 0, Z: 0},
+		Scale:          Vec3{X: 1, Y: 1, Z: 1},
+		ModelMatrix:    IdentityMatrix(),
+		RotationMatrix: IdentityMatrix(),
+		Right:          NewVec3(0, 0, 0),
+		Forward:        NewVec3(0, 0, 0),
+		Up:             NewVec3(0, 0, 0),
 	}
 }
 
@@ -34,6 +42,11 @@ func (t *Transform) GetModelMatrix() Mat4 {
 	t.Mutex.RLock()
 	defer t.Mutex.RUnlock()
 	return t.GetMatrix()
+}
+
+func (t *Transform) GetRotationMatrix() Mat4 {
+	t.UpdateModelMatrix()
+	return t.RotationMatrix
 }
 
 // SetPosition sets the position
@@ -85,31 +98,25 @@ func (t *Transform) Rotate(rotation Vec3) {
 	t.Dirty = true
 }
 func (t *Transform) GetForward() Vec3 {
-	// In a right-handed system, negative Z is forward (common in graphics)
-	return t.getDirectionFromRotation(0, 0, -1).Normalize()
+	t.UpdateModelMatrix()
+	return t.Forward
 }
 
 func (t *Transform) GetRight() Vec3 {
-	// X+ is right
-	return t.getDirectionFromRotation(1, 0, 0).Normalize()
+	t.UpdateModelMatrix()
+	return t.Right
 }
 
 func (t *Transform) GetUp() Vec3 {
-	// Y+ is up
-	return t.getDirectionFromRotation(0, 1, 0).Normalize()
+	t.UpdateModelMatrix()
+	return t.Up
 }
 
-// getDirectionFromRotation calculates a direction vector from rotation
 func (t *Transform) getDirectionFromRotation(x, y, z float64) Vec3 {
-	// Rotation order: Yaw (Y), Pitch (X), Roll (Z)
-	rotation := IdentityMatrix().
-		Multiply(RotationYMatrix(t.Rotation.Y)). // Yaw
-		Multiply(RotationXMatrix(t.Rotation.X)). // Pitch
-		Multiply(RotationZMatrix(t.Rotation.Z))  // Roll
-
-	direction := Vec4{X: x, Y: y, Z: z, W: 0}
-	transformed := rotation.MultiplyVec4(direction)
-	return transformed.ToVec3().Normalize()
+	// direction := Vec4{X: x, Y: y, Z: z, W: 0}
+	// transformed := t.RotationMatrix.MultiplyVec4(direction)
+	// return transformed.ToVec3().Normalize()
+	return t.RotationMatrix.TransformDirection(Vec3{x, y, z}).Normalize()
 }
 
 // GetWorldPosition returns the transformed position
@@ -129,15 +136,15 @@ func (t *Transform) GetWorldScale() Vec3 {
 
 // LookAtMatrix creates a view matrix looking at target
 func LookAtMatrix(eye, target, up Vec3) Mat4 {
-	f := target.Subtract(eye).Normalize()
-	s := f.Cross(up).Normalize()
-	u := s.Cross(f)
+	forward := target.Subtract(eye).Normalize()
+	right := forward.Cross(up).Normalize()
+	up = right.Cross(forward).Normalize()
 
 	return Mat4{
-		s.X, u.X, -f.X, 0,
-		s.Y, u.Y, -f.Y, 0,
-		s.Z, u.Z, -f.Z, 0,
-		-s.Dot(eye), -u.Dot(eye), f.Dot(eye), 1,
+		right.X, up.X, -forward.X, 0,
+		right.Y, up.Y, -forward.Y, 0,
+		right.Z, up.Z, -forward.Z, 0,
+		-right.Dot(eye), -up.Dot(eye), forward.Dot(eye), 1,
 	}
 }
 
@@ -195,9 +202,15 @@ func (t *Transform) UpdateModelMatrix() {
 
 	// Fixed rotation order: Yaw (Y) -> Pitch (X) -> Roll (Z)
 	rotation := IdentityMatrix().
-		Multiply(RotationYMatrix(t.Rotation.Y)). // Yaw
-		Multiply(RotationXMatrix(t.Rotation.X)). // Pitch
-		Multiply(RotationZMatrix(t.Rotation.Z))  // Roll
+		Multiply(RotationYMatrix(t.Rotation.Y)).
+		Multiply(RotationXMatrix(t.Rotation.X)).
+		Multiply(RotationZMatrix(t.Rotation.Z))
+
+	t.RotationMatrix = rotation
+
+	t.Forward = t.getDirectionFromRotation(0, 0, -1)
+	t.Right = t.getDirectionFromRotation(1, 0, 0)
+	t.Up = t.getDirectionFromRotation(0, 1, 0)
 
 	scale := ScaleMatrix(
 		t.Scale.X,
@@ -210,6 +223,7 @@ func (t *Transform) UpdateModelMatrix() {
 		Multiply(scale).
 		Multiply(rotation).
 		Multiply(translation)
+
 	t.Dirty = false
 }
 
