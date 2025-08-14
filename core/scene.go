@@ -88,8 +88,8 @@ func (s *Scene) UpdateScene() {
 	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
 	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
-	// s.Camera.DirtyFrustum = true
-	// s.Camera.Transform.Dirty = true
+	s.Camera.DirtyFrustum = true
+	s.Camera.Transform.Dirty = true
 	s.matrixMutex.Lock()
 	s.Camera.Update()
 	s.matrixMutex.Unlock()
@@ -115,19 +115,20 @@ func (s *Scene) AddAssembly(assembly *assets.Assembly) {
 	if len(assembly.References) > 0 {
 		for _, reference := range assembly.References {
 			reference.LoadReference()
-			s.AddAssembly(reference.Assembly)
+			s.AddAssembly(reference.Parent)
 
 		}
 	}
 }
 
-func (s *Scene) LoadAsset(asset_path string) {
+func (s *Scene) LoadAsset(asset_path string) *assets.Assembly {
 	assembly, err := assets.AssetImport(asset_path)
 	if err != nil {
-		return
+		fmt.Println("********************* ERROR **********************")
+		return assembly
 	}
-	fmt.Println(assembly.Name)
 	s.AddAssembly(assembly)
+	return assembly
 
 }
 
@@ -199,14 +200,16 @@ func (s *Scene) RenderScene(viewDir nomath.Vec3) {
 				continue
 			}
 
-			modelMatrix := geom.Transform.GetMatrix()
+			modelMatrix := geom.Transform.GetWorldMatrix()
 			mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
 			normalMatrix := modelMatrix.Inverse().Transpose()
 
 			for _, triangle := range geom.Triangles {
 				// Backface culling
-				if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
-					continue
+				if s.Renderer.BackFaceCulling {
+					if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+						continue
+					}
 				}
 
 				// Transform triangle normal using normalMatrix
@@ -271,7 +274,7 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 				continue
 			}
 
-			modelMatrix := geom.Transform.GetMatrix()
+			modelMatrix := geom.Transform.GetWorldMatrix()
 			mvpMatrix := s.Camera.cachedViewProjMatrix.Multiply(modelMatrix)
 
 			// Precompute shadow matrices for all lights
@@ -284,8 +287,10 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 
 			for _, tri := range geom.Triangles {
 				// Backface culling
-				if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
-					continue
+				if s.Renderer.BackFaceCulling {
+					if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
+						continue
+					}
 				}
 
 				workChan <- RenderTask{
