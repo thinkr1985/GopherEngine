@@ -5,6 +5,7 @@ import (
 	"GopherEngine/gui"
 	"GopherEngine/nomath"
 	"math"
+	"math/rand"
 	v2 "math/rand/v2"
 
 	// "GopherEngine/nomath"
@@ -24,11 +25,14 @@ func main() {
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
 
 	i := 0
-	for i < 25 {
+	for i < 100 {
 		i += 1
 		asmb := scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
-		asmb.Transform.SetPosition(nomath.Vec3{X: float64(v2.IntN(200)), Y: 0, Z: float64(v2.IntN(200))})
-		asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: float64(v2.IntN(1 + 3)), Z: 0})
+		asmb.Transform.SetPosition(nomath.Vec3{X: float64(v2.IntN(100)), Y: 0, Z: float64(v2.IntN(100))})
+		scale_random := float64(v2.IntN(5))
+		random := 0.1 + rand.Float64()*(10.0-0.1)
+		asmb.Transform.SetScale(nomath.Vec3{X: scale_random, Y: scale_random, Z: scale_random})
+		asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: random, Z: 0})
 	}
 
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")

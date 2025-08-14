@@ -24,6 +24,7 @@ type PackedTriangle struct {
 	V0, V1, V2    *nomath.Vec3
 	N0, N1, N2    *nomath.Vec3
 	UV0, UV1, UV2 *nomath.Vec2
+	Transform     nomath.SerializableTransform // Add this line
 }
 
 type PackedGeometry struct {
@@ -84,6 +85,7 @@ func AssetExport(assembly *Assembly, path string) error {
 				V0: tri.V0, V1: tri.V1, V2: tri.V2,
 				N0: tri.N0, N1: tri.N1, N2: tri.N2,
 				UV0: tri.UV0, UV1: tri.UV1, UV2: tri.UV2,
+				Transform: tri.Transform.ToSerializable(), // Add this line
 			})
 		}
 
@@ -238,18 +240,19 @@ func AssetImport(path string) (*Assembly, error) {
 	for _, g := range packed.Geometries {
 		// Convert PackedTriangle -> Triangle (without mutexes)
 		var tris []*Triangle
+		// Update the triangle unpacking in AssetImport
 		for _, ptri := range g.Triangles {
 			tri := &Triangle{
-				V0:  ptri.V0,
-				V1:  ptri.V1,
-				V2:  ptri.V2,
-				N0:  ptri.N0,
-				N1:  ptri.N1,
-				N2:  ptri.N2,
-				UV0: ptri.UV0,
-				UV1: ptri.UV1,
-				UV2: ptri.UV2,
-				// BufferCache false by default; material/parent will be assigned below
+				V0:        ptri.V0,
+				V1:        ptri.V1,
+				V2:        ptri.V2,
+				N0:        ptri.N0,
+				N1:        ptri.N1,
+				N2:        ptri.N2,
+				UV0:       ptri.UV0,
+				UV1:       ptri.UV1,
+				UV2:       ptri.UV2,
+				Transform: FromSerializableTransform(ptri.Transform), // Add this line
 			}
 			tris = append(tris, tri)
 		}

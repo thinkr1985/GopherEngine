@@ -50,7 +50,11 @@ func (a *Assembly) AddGeometry(geom *Geometry) {
 			return // Already present
 		}
 	}
+
+	// Set parent-child relationship
+	geom.Transform.SetParent(a.Transform)
 	geom.Parent = a
+
 	a.Geometries = append(a.Geometries, geom)
 	a.Triangles = append(a.Triangles, geom.Triangles...)
 	a.Vertices = append(a.Vertices, geom.Vertices...)
@@ -203,45 +207,36 @@ func (a *Assembly) SetStatic() {
 
 func (a *Assembly) Update() {
 	a.Transform.UpdateModelMatrix()
-	if len(a.Geometries) > 0 {
-		for _, geom := range a.Geometries {
-			geom.Update()
-		}
 
+	// Update all geometries
+	for _, geom := range a.Geometries {
+		geom.Update()
 	}
-	a.ComputeTransformedBoundingBox()
+
+	// Recompute assembly's bounding box in world space
+	a.ComputeBoundingBox()
 }
 
 func (a *Assembly) ComputeBoundingBox() {
-	if len(a.Vertices) == 0 {
+	if len(a.Geometries) == 0 {
+		a.BoundingBox = nomath.NewBoundingBox()
 		return
 	}
 
-	min := *a.Vertices[0]
-	max := *a.Vertices[0]
+	// Start with empty bounding box
+	a.BoundingBox = nomath.NewBoundingBox()
 
-	for _, v := range a.Vertices[1:] {
-		if v.X < min.X {
-			min.X = v.X
-		}
-		if v.Y < min.Y {
-			min.Y = v.Y
-		}
-		if v.Z < min.Z {
-			min.Z = v.Z
-		}
-		if v.X > max.X {
-			max.X = v.X
-		}
-		if v.Y > max.Y {
-			max.Y = v.Y
-		}
-		if v.Z > max.Z {
-			max.Z = v.Z
-		}
+	// Combine all geometry bounding boxes in world space
+	for _, geom := range a.Geometries {
+		// Get geometry's world transform
+		worldMatrix := geom.Transform.GetWorldMatrix()
+
+		// Transform geometry's local bounding box to world space
+		worldBB := geom.BoundingBox.Transform(worldMatrix)
+
+		// Merge with assembly's bounding box
+		a.BoundingBox = a.BoundingBox.Merge(worldBB)
 	}
-
-	a.BoundingBox = &nomath.BoundingBox{Min: min, Max: max}
 }
 
 func (a *Assembly) ComputeTransformedBoundingBox() {
@@ -249,7 +244,7 @@ func (a *Assembly) ComputeTransformedBoundingBox() {
 		return
 	}
 
-	transform := a.Transform.GetMatrix()
+	transform := a.Transform.GetWorldMatrix()
 
 	first := transform.MultiplyVec4(a.Vertices[0].ToVec4(1)).ToVec3()
 	min := first

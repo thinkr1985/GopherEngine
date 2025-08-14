@@ -200,14 +200,16 @@ func (s *Scene) RenderScene(viewDir nomath.Vec3) {
 				continue
 			}
 
-			modelMatrix := geom.Transform.GetMatrix()
+			modelMatrix := geom.Transform.GetWorldMatrix()
 			mvpMatrix := viewProjMatrix.Multiply(modelMatrix)
 			normalMatrix := modelMatrix.Inverse().Transpose()
 
 			for _, triangle := range geom.Triangles {
 				// Backface culling
-				if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
-					continue
+				if s.Renderer.BackFaceCulling {
+					if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+						continue
+					}
 				}
 
 				// Transform triangle normal using normalMatrix
@@ -272,7 +274,7 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 				continue
 			}
 
-			modelMatrix := geom.Transform.GetMatrix()
+			modelMatrix := geom.Transform.GetWorldMatrix()
 			mvpMatrix := s.Camera.cachedViewProjMatrix.Multiply(modelMatrix)
 
 			// Precompute shadow matrices for all lights
@@ -285,8 +287,10 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 
 			for _, tri := range geom.Triangles {
 				// Backface culling
-				if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
-					continue
+				if s.Renderer.BackFaceCulling {
+					if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
+						continue
+					}
 				}
 
 				workChan <- RenderTask{

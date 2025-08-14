@@ -287,11 +287,14 @@ func (a *Assembly) LoadAssembly(path string) {
 			NormalStrength: sGeom.Material.NormalStrength,
 		}
 
-		// Fix: Ensure geometry transform is properly initialized
 		geom.Transform = FromSerializableTransform(sGeom.Transform)
 		if geom.Transform == nil {
 			geom.Transform = nomath.NewTransform()
 		}
+		if a != geom.Parent {
+			geom.Transform.SetParent(a.Transform)
+		}
+
 		geom.Transform.UpdateModelMatrix()
 
 		if sGeom.Material.DiffuseTexture != "" {
@@ -326,7 +329,9 @@ func (a *Assembly) LoadAssembly(path string) {
 				log.Fatalf("Failed to load texture : %v", filepath.Join(assemblyDir, sGeom.Material.TransparencyTexture))
 			}
 		}
+		// Recompute bounding boxes
 		geom.ComputeBoundingBox()
+		geom.ComputeTransformedBoundingBox()
 		a.AddGeometry(geom)
 	}
 	a.ComputeBoundingBox()
