@@ -88,8 +88,8 @@ func (s *Scene) UpdateScene() {
 	// s.Assemblies[0].Geometries[0].Transform.Rotation.Y += 0. + math.Sin(0.2)*0.1
 	// s.Assemblies[0].Geometries[0].Transform.Dirty = true
 	// Important to update camera first!
-	// s.Camera.DirtyFrustum = true
-	// s.Camera.Transform.Dirty = true
+	s.Camera.DirtyFrustum = true
+	s.Camera.Transform.Dirty = true
 	s.matrixMutex.Lock()
 	s.Camera.Update()
 	s.matrixMutex.Unlock()
@@ -115,19 +115,20 @@ func (s *Scene) AddAssembly(assembly *assets.Assembly) {
 	if len(assembly.References) > 0 {
 		for _, reference := range assembly.References {
 			reference.LoadReference()
-			s.AddAssembly(reference.Assembly)
+			s.AddAssembly(reference.Parent)
 
 		}
 	}
 }
 
-func (s *Scene) LoadAsset(asset_path string) {
+func (s *Scene) LoadAsset(asset_path string) *assets.Assembly {
 	assembly, err := assets.AssetImport(asset_path)
 	if err != nil {
-		return
+		fmt.Println("********************* ERROR **********************")
+		return assembly
 	}
-	fmt.Println(assembly.Name)
 	s.AddAssembly(assembly)
+	return assembly
 
 }
 

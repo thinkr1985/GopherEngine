@@ -53,6 +53,7 @@ type PackedAssembly struct {
 type PackedReference struct {
 	Name     string
 	FilePath string
+	ID       string
 }
 
 // --- Asset Exporter ---
@@ -72,6 +73,7 @@ func AssetExport(assembly *Assembly, path string) error {
 		packed_reference := PackedReference{
 			Name:     reference.Name,
 			FilePath: reference.FilePath,
+			ID:       reference.ID,
 		}
 		packed.References = append(packed.References, packed_reference)
 	}
@@ -305,8 +307,7 @@ func AssetImport(path string) (*Assembly, error) {
 		for _, tri := range geom.Triangles {
 			tri.Parent = geom
 			tri.Material = geom.Material
-			// Optionally: compute triangle world normal etc. later in Update
-			a.Triangles = append(a.Triangles, tri)
+
 		}
 
 		geom.Transform.Dirty = true
@@ -317,7 +318,8 @@ func AssetImport(path string) (*Assembly, error) {
 		// Precompute triangle buffers if needed
 		geom.PrecomputeTextureBuffers()
 
-		a.Geometries = append(a.Geometries, geom)
+		// a.Geometries = append(a.Geometries, geom)
+		a.AddGeometry(geom)
 	}
 	a.ComputeBoundingBox()
 	return a, nil

@@ -50,7 +50,7 @@ func (a *Assembly) AddGeometry(geom *Geometry) {
 			return // Already present
 		}
 	}
-
+	geom.Parent = a
 	a.Geometries = append(a.Geometries, geom)
 	a.Triangles = append(a.Triangles, geom.Triangles...)
 	a.Vertices = append(a.Vertices, geom.Vertices...)
@@ -101,7 +101,9 @@ func (a *Assembly) RemoveGeometry(geom *Geometry) {
 			}
 		}
 		a.Vertices = newVertices
+
 	}
+	geom.Parent = nil
 
 	// Remove geom's triangles from Assembly
 	if len(geom.Triangles) > 0 {

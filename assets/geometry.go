@@ -9,6 +9,7 @@ import (
 type Geometry struct {
 	Name        string
 	ID          string
+	Parent      *Assembly
 	Transform   *nomath.Transform
 	Vertices    []*nomath.Vec3
 	Normals     []*nomath.Vec3

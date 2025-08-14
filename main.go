@@ -3,7 +3,9 @@ package main
 import (
 	"GopherEngine/core"
 	"GopherEngine/gui"
+	"GopherEngine/nomath"
 	"math"
+	v2 "math/rand/v2"
 
 	// "GopherEngine/nomath"
 	_ "log"
@@ -15,21 +17,19 @@ func main() {
 	scene := core.NewScene()
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/test_tree_scene.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/skySphere.asset")
-	scene.LoadAsset("E:/GitHub/GopherEngine/tests/NestedTest.asset")
+	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/NestedTest.asset")
 
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeB.asset")
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
-	// plane_assembly := assets.NewAssembly()
-	// plane, err := assets.LoadOBJ("objs/ground_plane.obj")
-	// if err != nil {
-	// 	log.Fatalf("Failed to load OBJ file: %v", err)
-	// }
-	// plane.Name = "PlaneMesh"
-	// plane_assembly.Name = "Plane"
-	// plane_assembly.AddGeometry(plane)
 
-	// scene.AddAssembly(plane_assembly)
+	i := 0
+	for i < 25 {
+		i += 1
+		asmb := scene.LoadAsset("E:/GitHub/GopherEngine/tests/CartoonyTreeA.asset")
+		asmb.Transform.SetPosition(nomath.Vec3{X: float64(v2.IntN(200)), Y: 0, Z: float64(v2.IntN(200))})
+		asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: float64(v2.IntN(1 + 3)), Z: 0})
+	}
 
 	// scene.LoadAsset("E:/GitHub/GopherEngine/tests/Stones.asset")
 	/*

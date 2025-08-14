@@ -37,6 +37,7 @@ type SerializableGeomRef struct {
 type SerializableReference struct {
 	Name     string `json:"name"`
 	FilePath string `json:"file_path"`
+	ID       string `json:"id"`
 }
 
 // --- Transform Conversion ---
@@ -150,6 +151,7 @@ func (a *Assembly) SaveAssembly(name string, folderPath string) string {
 		out_ref := SerializableReference{
 			Name:     reference.Name,
 			FilePath: reference.FilePath,
+			ID:       reference.ID,
 		}
 		out.References = append(out.References, out_ref)
 	}
