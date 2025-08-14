@@ -161,42 +161,19 @@ func (t *Triangle) PreComputeBuffers() {
 
 	t.BufferCache = true
 }
-
 func (t *Triangle) ComputeBoundingBox() {
-	// Start with V0
 	min := *t.V0
 	max := *t.V0
 
-	// Helper function to expand min/max with a vertex
 	expand := func(v *nomath.Vec3) {
-		if v.X < min.X {
-			min.X = v.X
-		}
-		if v.Y < min.Y {
-			min.Y = v.Y
-		}
-		if v.Z < min.Z {
-			min.Z = v.Z
-		}
-		if v.X > max.X {
-			max.X = v.X
-		}
-		if v.Y > max.Y {
-			max.Y = v.Y
-		}
-		if v.Z > max.Z {
-			max.Z = v.Z
-		}
+		min = nomath.Min(min, *v)
+		max = nomath.Max(max, *v)
 	}
 
-	// Expand with remaining vertices
 	expand(t.V1)
 	expand(t.V2)
 
-	t.BoundingBox = &nomath.BoundingBox{
-		Min: min,
-		Max: max,
-	}
+	t.BoundingBox = &nomath.BoundingBox{Min: min, Max: max}
 }
 
 func (t *Triangle) ComputeTransformedBoundingBox() {
@@ -204,24 +181,6 @@ func (t *Triangle) ComputeTransformedBoundingBox() {
 		return
 	}
 
-	transform := t.Transform.GetMatrix()
-
-	// Transform first vertex
-	first := transform.MultiplyVec4(t.V0.ToVec4(1)).ToVec3()
-	min := first
-	max := first
-
-	// Transform and expand with remaining vertices
-	v1t := transform.MultiplyVec4(t.V1.ToVec4(1)).ToVec3()
-	min = nomath.Min(min, v1t)
-	max = nomath.Max(max, v1t)
-
-	v2t := transform.MultiplyVec4(t.V2.ToVec4(1)).ToVec3()
-	min = nomath.Min(min, v2t)
-	max = nomath.Max(max, v2t)
-
-	t.BoundingBox = &nomath.BoundingBox{
-		Min: min,
-		Max: max,
-	}
+	transform := t.Transform.GetWorldMatrix()
+	t.BoundingBox = t.BoundingBox.Transform(transform)
 }

@@ -15,11 +15,12 @@ import (
 )
 
 type Renderer3D struct {
-	Framebuffer     [][]lookdev.ColorRGBA // Changed to value type
-	DepthBuffer     [][]float32           // Changed to float32 for better cache usage
-	BackFaceCulling bool
-	bufferMutex     sync.Mutex // For thread-safe resizing
-	shadowOffsets4  [4]struct{ x, y float64 }
+	Framebuffer         [][]lookdev.ColorRGBA // Changed to value type
+	DepthBuffer         [][]float32           // Changed to float32 for better cache usage
+	BackFaceCulling     bool
+	bufferMutex         sync.Mutex // For thread-safe resizing
+	shadowOffsets4      [4]struct{ x, y float64 }
+	OverrideSoftNormals bool
 
 	CachedRGBA   []color.RGBA
 	cachedWidth  int
@@ -48,15 +49,16 @@ type Renderer3D struct {
 
 func NewRenderer3D() *Renderer3D {
 	r := &Renderer3D{
-		BackFaceCulling: true,
-		Framebuffer:     make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
-		DepthBuffer:     make([][]float32, SCREEN_HEIGHT),
-		rowLocks:        make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
+		BackFaceCulling:     true,
+		Framebuffer:         make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
+		DepthBuffer:         make([][]float32, SCREEN_HEIGHT),
+		rowLocks:            make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
+		OverrideSoftNormals: false,
 
 		FogEnabled:     false,
 		FogColor:       lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},
-		FogDensity:     0.05,
-		FogStart:       10.0,
+		FogDensity:     0.005,
+		FogStart:       50.0,
 		FogEnd:         500.0,
 		DOFEnabled:     false,
 		DOFFocusDepth:  0.4,
@@ -689,7 +691,7 @@ func (r *Renderer3D) RenderShadowMap(light *Light, scene *Scene) {
 		go func() {
 			defer renderWg.Done()
 			for tri := range workChan {
-				modelMatrix := tri.Parent.Transform.GetMatrix()
+				modelMatrix := tri.Parent.Transform.GetWorldMatrix()
 				mvpMatrix := light.LightVp.Multiply(modelMatrix)
 				r.renderShadowTriangle(&mvpMatrix, tri, light)
 			}
@@ -853,12 +855,14 @@ func (r *Renderer3D) calculateLighting(
 	localPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
 	fragmentPos := modelMatrix.MultiplyVec4(localPos.ToVec4(1.0)).ToVec3()
 
-	// Get interpolated normal
 	worldNormal := tri.WorldNormal
-	if tri.Parent.SoftNormals {
-		worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(
-			tri.InterpolatedNormal(u, v, w),
-		)
+	// Get interpolated normal
+	if r.OverrideSoftNormals {
+		if tri.Parent.SoftNormals {
+			worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(
+				tri.InterpolatedNormal(u, v, w),
+			)
+		}
 	}
 
 	// Apply normal mapping if available

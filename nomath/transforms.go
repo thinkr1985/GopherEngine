@@ -5,9 +5,8 @@ import (
 	"sync"
 )
 
-// Coordinate system: Y+ up, Z+ forward, X+ left (right-handed)
 type Transform struct {
-	Position       Vec3 // Position in world space
+	Position       Vec3 // Position in local space
 	Rotation       Vec3 // Euler angles in radians (order: YXZ - yaw, pitch, roll)
 	Scale          Vec3 // Scale factors
 	ModelMatrix    Mat4
@@ -17,36 +16,101 @@ type Transform struct {
 	Up             Vec3
 	Dirty          bool // track whether transform changed
 	Mutex          sync.RWMutex
+	parent         *Transform   // Reference to parent transform
+	children       []*Transform // References to child transforms
 }
 
-// NewTransform creates a new Transform with default values
 func NewTransform() *Transform {
-	return &Transform{
+	t := &Transform{
 		Position:       Vec3{X: 0, Y: 0, Z: 0},
 		Rotation:       Vec3{X: 0, Y: 0, Z: 0},
 		Scale:          Vec3{X: 1, Y: 1, Z: 1},
 		ModelMatrix:    IdentityMatrix(),
 		RotationMatrix: IdentityMatrix(),
-		Right:          NewVec3(0, 0, 0),
-		Forward:        NewVec3(0, 0, 0),
-		Up:             NewVec3(0, 0, 0),
+		Forward:        NewVec3(0, 0, -1),
+		Right:          NewVec3(1, 0, 0),
+		Up:             NewVec3(0, 1, 0),
+		Dirty:          true,
+		children:       make([]*Transform, 0),
+	}
+	return t
+}
+
+// SetParent sets the parent transform and updates the child list
+func (t *Transform) SetParent(parent *Transform) {
+	t.Mutex.Lock()
+	defer t.Mutex.Unlock()
+
+	// Remove from old parent's children
+	if t.parent != nil {
+		t.parent.removeChild(t)
+	}
+
+	t.parent = parent
+	t.Dirty = true
+
+	// Add to new parent's children
+	if parent != nil {
+		parent.addChild(t)
 	}
 }
 
-func (t *Transform) GetMatrix() Mat4 {
+func (t *Transform) addChild(child *Transform) {
+	t.Mutex.Lock()
+	defer t.Mutex.Unlock()
+	t.children = append(t.children, child)
+}
+
+func (t *Transform) removeChild(child *Transform) {
+	t.Mutex.Lock()
+	defer t.Mutex.Unlock()
+	for i, c := range t.children {
+		if c == child {
+			t.children = append(t.children[:i], t.children[i+1:]...)
+			break
+		}
+	}
+}
+
+// GetWorldMatrix returns the combined transformation matrix including parent transforms
+func (t *Transform) GetWorldMatrix() Mat4 {
 	t.UpdateModelMatrix()
+	if t.parent != nil {
+		return t.parent.GetWorldMatrix().Multiply(t.ModelMatrix)
+	}
 	return t.ModelMatrix
 }
 
-func (t *Transform) GetModelMatrix() Mat4 {
-	t.Mutex.RLock()
-	defer t.Mutex.RUnlock()
-	return t.GetMatrix()
+// GetWorldPosition returns the transformed position in world space
+func (t *Transform) GetWorldPosition() Vec3 {
+	worldMatrix := t.GetWorldMatrix()
+	return Vec3{X: worldMatrix[12], Y: worldMatrix[13], Z: worldMatrix[14]}
 }
 
-func (t *Transform) GetRotationMatrix() Mat4 {
-	t.UpdateModelMatrix()
-	return t.RotationMatrix
+// GetWorldRotation returns the transformed rotation in world space
+func (t *Transform) GetWorldRotation() Vec3 {
+	if t.parent != nil {
+		parentRot := t.parent.GetWorldRotation()
+		return Vec3{
+			X: parentRot.X + t.Rotation.X,
+			Y: parentRot.Y + t.Rotation.Y,
+			Z: parentRot.Z + t.Rotation.Z,
+		}
+	}
+	return t.Rotation
+}
+
+// GetWorldScale returns the transformed scale in world space
+func (t *Transform) GetWorldScale() Vec3 {
+	if t.parent != nil {
+		parentScale := t.parent.GetWorldScale()
+		return Vec3{
+			X: parentScale.X * t.Scale.X,
+			Y: parentScale.Y * t.Scale.Y,
+			Z: parentScale.Z * t.Scale.Z,
+		}
+	}
+	return t.Scale
 }
 
 // SetPosition sets the position
@@ -119,21 +183,6 @@ func (t *Transform) getDirectionFromRotation(x, y, z float64) Vec3 {
 	return t.RotationMatrix.TransformDirection(Vec3{x, y, z}).Normalize()
 }
 
-// GetWorldPosition returns the transformed position
-func (t *Transform) GetWorldPosition() Vec3 {
-	return t.Position
-}
-
-// GetWorldRotation returns the transformed rotation
-func (t *Transform) GetWorldRotation() Vec3 {
-	return t.Rotation
-}
-
-// GetWorldScale returns the transformed scale
-func (t *Transform) GetWorldScale() Vec3 {
-	return t.Scale
-}
-
 // LookAtMatrix creates a view matrix looking at target
 func LookAtMatrix(eye, target, up Vec3) Mat4 {
 	forward := target.Subtract(eye).Normalize()
@@ -188,11 +237,11 @@ func wrapAngle(angle float64) float64 {
 	return angle
 }
 
-// UpdateModelMatrix updates the model matrix and marks geometry as needing update
 func (t *Transform) UpdateModelMatrix() {
 	if !t.Dirty {
 		return
 	}
+
 	// Create individual transformation matrices
 	translation := TranslationMatrix(
 		t.Position.X,
@@ -225,6 +274,13 @@ func (t *Transform) UpdateModelMatrix() {
 		Multiply(translation)
 
 	t.Dirty = false
+
+	// Mark all children as dirty
+	t.Mutex.RLock()
+	defer t.Mutex.RUnlock()
+	for _, child := range t.children {
+		child.Dirty = true
+	}
 }
 
 type SerializableTransform struct {

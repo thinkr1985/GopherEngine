@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"GopherEngine/utilities"
 	"fmt"
 	"log"
 )
@@ -8,12 +9,14 @@ import (
 type AssetReference struct {
 	Name     string
 	FilePath string
-	Assembly *Assembly
+	ID       string
+	Parent   *Assembly
 }
 
 func NewAssetReference(name string, file_path string) *AssetReference {
 	return &AssetReference{
 		Name:     name,
+		ID:       utilities.GenerateUniqueID(),
 		FilePath: file_path,
 	}
 }
@@ -28,5 +31,5 @@ func (ar *AssetReference) LoadReference() {
 		log.Fatalf("Failed to load Reference file: %v : %v", ar.FilePath, err)
 		return
 	}
-	ar.Assembly = assembly
+	ar.Parent = assembly
 }
