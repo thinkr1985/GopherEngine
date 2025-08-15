@@ -184,7 +184,7 @@ func HandleMouseEvents(scene *core.Scene) {
 	}
 
 	// --- Left drag to rotate around Y axis ---
-	if rl.IsMouseButtonDown(rl.MouseLeftButton) {
+	if rl.IsMouseButtonDown(rl.MouseRightButton) {
 		rotationSpeed := 0.002
 		scene.Camera.Transform.Rotate(nomath.Vec3{
 			Y: -float64(delta.X) * rotationSpeed,

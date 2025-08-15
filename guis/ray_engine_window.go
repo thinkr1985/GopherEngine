@@ -2,6 +2,7 @@ package guis
 
 import (
 	"GopherEngine/core"
+	"GopherEngine/widgets"
 	"fmt"
 	"image"
 	"image/color"
@@ -15,6 +16,7 @@ var engine_icon_path = "sources/go_engine_ico.png"
 var debugFont rl.Font
 var isFirstFrame = true
 var display_debug_screen = false
+var gui_widgets []interface{}
 
 func initWindow() {
 
@@ -28,7 +30,7 @@ func initWindow() {
 	rl.UnloadImage(icon)
 
 	rl.SetTargetFPS(240)
-
+	load_gui_layout()
 }
 
 func Window(scene *core.Scene) {
@@ -72,7 +74,6 @@ func Window(scene *core.Scene) {
 		Mipmaps: 1,
 		Format:  rl.PixelFormat(7),
 	})
-	slider := NewSlider(10, 10, 100, 20, 1, 200, 100, "Camera")
 
 	for !rl.WindowShouldClose() {
 		frameTime := rl.GetFrameTime()
@@ -100,7 +101,7 @@ func Window(scene *core.Scene) {
 		HandleInputEvents(scene)
 
 		// Render 3D
-		// scene.Render()
+		scene.Render()
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -125,7 +126,7 @@ func Window(scene *core.Scene) {
 
 		// Draw everything
 		rl.BeginDrawing()
-		// rl.ClearBackground(rl.DarkBlue)
+		rl.ClearBackground(rl.DarkBlue)
 
 		rl.DrawTexturePro(
 			fullResTex,
@@ -135,15 +136,79 @@ func Window(scene *core.Scene) {
 			0,
 			rl.White,
 		)
-
-		// rl.DrawFPS(20, 20)
-		// draw_debug_stats(scene)
-		// draw_threading_status(scene)
-		// drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
-		slider.Update()
-		slider.Draw()
+		rl.DrawFPS(20, 20)
+		draw_debug_stats(scene)
+		draw_threading_status(scene)
+		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
+		draw_gui_panels()
 		rl.EndDrawing()
 	}
+}
+
+func load_gui_layout() {
+	slider := widgets.NewFloatSlider(10, 100, 100, 20, 1, 200, 100, "Camera")
+	checkBox := widgets.NewCheckBox(10, 200, 20, 20, "Camera")
+	toggle := widgets.NewToggle(1, 300, "Camera")
+	colorWheel := widgets.NewColorWheel(300, 300, 50, 12)
+	dropdown := widgets.NewDropdown(500, 50, 200, 30, 20)
+	dropdown.AddOption("Option 1", "value1")
+	dropdown.AddOption("Option 2", "value2")
+	dropdown.AddOption("Option 3", "value3")
+	button := widgets.NewPushButton(700, 50, 200, 40, "Click Me", 20)
+	msgBox := widgets.NewMessageBox("sdsdsdsd", "fndfbdffdfdksfbjdsbfkbkadsjfkasd", 1)
+
+	treeWidget := widgets.NewTreeWidget(50, 50, 300, 500, 20)
+
+	// Create the root and add some child nodes
+	root := treeWidget.AddNode("Root", nil)
+	treeWidget.AddNode("Child 1", root)
+	treeWidget.AddNode("Child 2", root)
+	treeWidget.AddNode("Child 3", root)
+
+	// Create more nested nodes
+	child2 := treeWidget.AddNode("Child 2-1", root.Children[1])
+	treeWidget.AddNode("Child 2-1-1", child2)
+
+	// Create tab widget
+	tabWidget := widgets.NewTabWidget(50, 50, 600, 400, 30, 20)
+
+	// Add regular tab
+	tabWidget.AddTab("Tab 1", func() {
+		rl.DrawText("Content for Tab 1", 100, 100, 20, rl.Black)
+	})
+
+	// Add closeable tab
+	tabWidget.AddCloseableTab("Tab 2", func() {
+		rl.DrawText("Closeable Tab Content", 100, 100, 20, rl.Black)
+	})
+
+	gui_widgets = append(gui_widgets, slider)
+	gui_widgets = append(gui_widgets, checkBox)
+	gui_widgets = append(gui_widgets, toggle)
+	gui_widgets = append(gui_widgets, colorWheel)
+	gui_widgets = append(gui_widgets, dropdown)
+	gui_widgets = append(gui_widgets, button)
+	gui_widgets = append(gui_widgets, msgBox)
+	gui_widgets = append(gui_widgets, treeWidget)
+	gui_widgets = append(gui_widgets, tabWidget)
+
+}
+
+func draw_gui_panels() {
+	for _, widget := range gui_widgets {
+		switch w := widget.(type) {
+		case *widgets.CheckBox:
+			w.Update()
+			w.Draw()
+
+		case *widgets.ColorWheel:
+			w.Update()
+			w.Draw()
+		default:
+			continue
+		}
+	}
+
 }
 
 func updateTargetResolution(scene *core.Scene, currentFPS int, currentTime float64) {

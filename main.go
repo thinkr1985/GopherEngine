@@ -2,7 +2,7 @@ package main
 
 import (
 	"GopherEngine/core"
-	"GopherEngine/gui"
+	"GopherEngine/guis"
 	"GopherEngine/nomath"
 	"math"
 	"math/rand"
@@ -94,6 +94,6 @@ func main() {
 
 	scene.DefaultLight.Transform.Rotation.X += 3.0 + math.Sin(10)*1.0
 	scene.DefaultLight.Transform.Dirty = true
-	gui.Window(scene)
+	guis.Window(scene)
 	core.StopCPUProfile()
 }
