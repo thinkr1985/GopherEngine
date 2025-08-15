@@ -35,7 +35,7 @@ A CPU rasterizer using GO language.
 After cloing the repository just open terminal from project directory and run "go run main.go"
 
 
-!![alt](./sources/wip_window.png)
+!![alt](./sources/wip.png)
 
 !![alt](./sources/optimized.gif)
 

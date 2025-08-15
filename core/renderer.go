@@ -49,11 +49,11 @@ type Renderer3D struct {
 
 func NewRenderer3D() *Renderer3D {
 	r := &Renderer3D{
-		BackFaceCulling:     true,
+		BackFaceCulling:     false,
 		Framebuffer:         make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 		DepthBuffer:         make([][]float32, SCREEN_HEIGHT),
 		rowLocks:            make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
-		OverrideSoftNormals: false,
+		OverrideSoftNormals: true,
 
 		FogEnabled:     false,
 		FogColor:       lookdev.ColorRGBA{R: 150, G: 150, B: 160, A: 1.0},

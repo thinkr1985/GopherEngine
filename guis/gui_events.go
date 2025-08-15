@@ -206,25 +206,9 @@ func handleWindowResize(scene *core.Scene) {
 		return
 	}
 
-	newWidth := max(300, int(rl.GetScreenWidth()))
-	newHeight := max(200, int(rl.GetScreenHeight()))
+	core.SCREEN_HEIGHT = int(appLayout.RenderPanel.Bounds.Height)
+	core.SCREEN_WIDTH = int(appLayout.RenderPanel.Bounds.Width)
+	scene.Renderer.Resize(core.SCREEN_WIDTH, core.SCREEN_HEIGHT)
+	scene.Camera.Update()
 
-	// Only resize if dimensions actually changed
-	// Update global dimensions
-	core.SCREEN_WIDTH = newWidth
-	core.SCREEN_HEIGHT = newHeight
-
-	// Calculate render dimensions based on resolution scale
-	renderWidth := int(float64(newWidth) * scene.ResolutionScale)
-	renderHeight := int(float64(newHeight) * scene.ResolutionScale)
-
-	// Ensure minimum size
-	renderWidth = max(1, renderWidth)
-	renderHeight = max(1, renderHeight)
-
-	// Resize render buffers
-	scene.Renderer.Resize(renderWidth, renderHeight)
-
-	// Update camera projection
-	scene.Camera.Update() // This will update the projection matrix
 }

@@ -16,7 +16,7 @@ type CheckBox struct {
 }
 
 func NewCheckBox(xPos, yPos, width, height int, label string) *CheckBox {
-	initializeWidgetFont()
+	InitializeWidgetFont()
 	// defer rl.UnloadFont(widget_default_font)
 
 	return &CheckBox{
@@ -40,7 +40,7 @@ func (cb *CheckBox) Draw() {
 	// Draw checkbox label text
 	labelText := fmt.Sprintf("%s: %s", cb.Label, cb.StateText())
 	rl.DrawTextEx(
-		widget_default_font, // Font (using default font)
+		Widget_default_font, // Font (using default font)
 		labelText,           // Text to draw
 		rl.Vector2{ // Position (convert from X,Y to Vector2)
 			X: cb.Bounds.X + cb.Bounds.Width + 10,

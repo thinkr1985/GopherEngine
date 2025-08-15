@@ -17,9 +17,9 @@ var debugFont rl.Font
 var isFirstFrame = true
 var display_debug_screen = false
 var gui_widgets []interface{}
+var appLayout *Layout
 
 func initWindow() {
-
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -30,7 +30,16 @@ func initWindow() {
 	rl.UnloadImage(icon)
 
 	rl.SetTargetFPS(240)
-	load_gui_layout()
+
+	// Initialize layout
+	appLayout = NewLayout()
+
+	// Set up panel contents
+	appLayout.MenuBar.Content = drawMenuBar
+	appLayout.SceneExplorer.Content = drawSceneExplorer
+	appLayout.AttributeEditor.Content = drawAttributeEditor
+	appLayout.AssetBrowser.Content = drawAssetBrowser
+
 }
 
 func Window(scene *core.Scene) {
@@ -38,29 +47,12 @@ func Window(scene *core.Scene) {
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 
-	// Initialize resolution scaling with proper window dimensions
-	scene.ResolutionScale = 1.0
-	scene.AutoResolution = false
-	scene.LastFPS = 60
-	scene.MinResolutionScale = 0.5
-	scene.LastScaleChange = rl.GetTime()
-	scene.FPSHistory = make([]int, 0, 10)
-
-	// Get initial window size and set up renderer
-	initialWidth := max(300, int(rl.GetScreenWidth()))
-	initialHeight := max(200, int(rl.GetScreenHeight()))
-	core.SCREEN_WIDTH = initialWidth
-	core.SCREEN_HEIGHT = initialHeight
-
-	// Initialize renderer with correct size
-
 	keyboardTextures := generateKeybaordTextureMap()
 	defer func() {
 		for _, tex := range keyboardTextures {
 			rl.UnloadTexture(tex)
 		}
 	}()
-
 	// Create initial texture
 	var fullResTex rl.Texture2D
 	defer rl.UnloadTexture(fullResTex)
@@ -76,32 +68,16 @@ func Window(scene *core.Scene) {
 	})
 
 	for !rl.WindowShouldClose() {
-		frameTime := rl.GetFrameTime()
-		currentTime := rl.GetTime()
-		currentFPS := rl.GetFPS()
-
-		// Update FPS history
-		if len(scene.FPSHistory) >= 120 {
-			scene.FPSSum -= scene.FPSHistory[0]
-			scene.FPSHistory = scene.FPSHistory[1:]
-		}
-		scene.FPSHistory = append(scene.FPSHistory, int(currentFPS))
-		scene.FPSSum += int(currentFPS)
-
-		// Handle auto-resolution
-		if scene.AutoResolution {
-			if currentTime-scene.LastScaleChange > 0.5 {
-				smoothedFPS := scene.FPSSum / len(scene.FPSHistory)
-				updateTargetResolution(scene, smoothedFPS, currentTime)
-			}
-			adjustResolutionGradually(scene, float64(frameTime))
-		}
 
 		handleWindowResize(scene)
 		HandleInputEvents(scene)
+		appLayout.HandleResize()
 
 		// Render 3D
 		scene.Render()
+
+		// Update layout with current window size
+		appLayout.Update(int32(rl.GetScreenWidth()), int32(rl.GetScreenHeight()))
 
 		// Get rendered image and convert to RGBA
 		rawImage := scene.Renderer.ToImage()
@@ -120,29 +96,100 @@ func Window(scene *core.Scene) {
 				Format:  rl.PixelFormat(7),
 			})
 		} else {
-			// Update existing texture
 			rl.UpdateTexture(fullResTex, rgbaSlice)
 		}
 
+		// Set render panel content function
+		appLayout.RenderPanel.Content = func() {
+			// Calculate the actual render area (excluding title bar)
+			renderArea := rl.NewRectangle(
+				appLayout.RenderPanel.Bounds.X,
+				appLayout.RenderPanel.Bounds.Y+20, // Below title
+				appLayout.RenderPanel.Bounds.Width,
+				appLayout.RenderPanel.Bounds.Height-20, // Subtract title height
+			)
+
+			// Calculate source rectangle (entire rendered image)
+			srcRect := rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height))
+
+			// Calculate destination rectangle (centered and maintaining aspect ratio)
+			destWidth := renderArea.Width
+			destHeight := renderArea.Height
+
+			// Maintain 16:9 aspect ratio
+			targetAspect := float32(16) / 9
+			currentAspect := destWidth / destHeight
+
+			var destRect rl.Rectangle
+
+			if currentAspect > targetAspect {
+				// Window is wider than 16:9 - add horizontal padding
+				newWidth := destHeight * targetAspect
+				xOffset := (destWidth - newWidth) / 2
+				destRect = rl.NewRectangle(
+					renderArea.X+xOffset,
+					renderArea.Y,
+					newWidth,
+					destHeight,
+				)
+			} else {
+				// Window is taller than 16:9 - add vertical padding
+				newHeight := destWidth / targetAspect
+				yOffset := (destHeight - newHeight) / 2
+				destRect = rl.NewRectangle(
+					renderArea.X,
+					renderArea.Y+yOffset,
+					destWidth,
+					newHeight,
+				)
+			}
+
+			// Draw the rendered texture in the render panel
+			rl.DrawTexturePro(
+				fullResTex,
+				srcRect,
+				destRect,
+				rl.NewVector2(0, 0),
+				0,
+				rl.White,
+			)
+
+			if display_debug_screen {
+				draw_debug_stats(scene, appLayout.SceneExplorer)
+				draw_threading_status(scene, appLayout.SceneExplorer)
+				drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
+			}
+		}
 		// Draw everything
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.DarkBlue)
+		rl.ClearBackground(rl.Black)
 
-		rl.DrawTexturePro(
-			fullResTex,
-			rl.NewRectangle(0, 0, float32(fullResTex.Width), float32(fullResTex.Height)),
-			rl.NewRectangle(0, 0, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight())),
-			rl.NewVector2(0, 0),
-			0,
-			rl.White,
-		)
-		rl.DrawFPS(20, 20)
-		draw_debug_stats(scene)
-		draw_threading_status(scene)
-		drawKeyboardOverlay(keyboardTextures[currentKeyboardImage])
-		draw_gui_panels()
+		// Draw the layout
+		appLayout.Draw()
+
 		rl.EndDrawing()
 	}
+}
+
+// Panel content functions
+func drawMenuBar() {
+	// Draw menu items here
+	rl.DrawText("File", 10, 5, 12, rl.White)
+	rl.DrawText("Edit", 60, 5, 12, rl.White)
+	rl.DrawText("View", 110, 5, 12, rl.White)
+	rl.DrawText("Help", 160, 5, 12, rl.White)
+}
+
+func drawSceneExplorer() {
+
+}
+
+func drawAttributeEditor() {
+
+}
+
+func drawAssetBrowser() {
+
 }
 
 func load_gui_layout() {
@@ -252,7 +299,7 @@ func adjustResolutionGradually(scene *core.Scene, frameTime float64) {
 
 }
 
-func draw_debug_stats(scene *core.Scene) {
+func draw_debug_stats(scene *core.Scene, render_panel *Panel) {
 	if !display_debug_screen {
 		return
 	}
@@ -260,8 +307,10 @@ func draw_debug_stats(scene *core.Scene) {
 	if len(scene.FPSHistory) > 0 {
 		avgFPS = scene.FPSSum / len(scene.FPSHistory)
 	}
-
-	statsText := fmt.Sprintf("%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v\nCPU : %v\nGPU : %v",
+	render_width := scene.Renderer.GetWidth()
+	render_height := scene.Renderer.GetHeight()
+	statsText := fmt.Sprintf("Resolution : %dx%d\n%s\nFPS: %d (Avg: %d)\nResolution: %.0f%% (Target: %.0f%%)\nAuto-Res: %v\nScene Triangles : %v/%v\nCPU : %v\nGPU : %v",
+		render_width, render_height,
 		core.GetMachineStats(),
 		rl.GetFPS(),
 		avgFPS,
@@ -274,22 +323,22 @@ func draw_debug_stats(scene *core.Scene) {
 		scene.Renderer.GPU)
 
 	textWidth := rl.MeasureText(statsText, 12)
-	rl.DrawRectangle(10, 10, textWidth+100, 190, rl.NewColor(0, 0, 0, 30))
-	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(20, 40), 12, 2, rl.LightGray)
+	rl.DrawRectangle(render_panel.Bounds.ToInt32().Width+10, 40, textWidth+100, 190, rl.NewColor(0, 0, 0, 30))
+	rl.DrawTextEx(debugFont, statsText, rl.NewVector2(render_panel.Bounds.Width+20, 80), 12, 2, rl.LightGray)
 
 	// Show scaling info if in auto mode
 	if scene.AutoResolution {
 		scalingText := fmt.Sprintf("Scaling: %.1f%%/s", scene.ResolutionChangeSpeed*100)
-		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(20, 180), 12, 2, rl.LightGray)
+		rl.DrawTextEx(debugFont, scalingText, rl.NewVector2(render_panel.Bounds.Width+180, 20), 12, 2, rl.LightGray)
 	}
 }
 
-func draw_threading_status(scene *core.Scene) {
+func draw_threading_status(scene *core.Scene, panel *Panel) {
 	thread_text := fmt.Sprintf("Multi-Threading (F3) : %v", scene.Renderer.MultiThreading)
 
 	rl.DrawTextEx(
 		debugFont, thread_text,
-		rl.NewVector2(float32(rl.GetRenderWidth()-300), float32(rl.GetRenderHeight()/12)),
+		rl.NewVector2(panel.Bounds.Width+200, 80),
 		12, 2, rl.White)
 
 }

@@ -41,9 +41,7 @@ func GetMachineStats() string {
 	// percent, _ := cpu.Percent(time.Second, false)
 	vmStat, _ := mem.VirtualMemory()
 	statsText := fmt.Sprintf(
-		"Resolution: %dx%d\nMemory: %.1f/%.1f GB (%.1f%%)\n",
-
-		SCREEN_WIDTH, SCREEN_HEIGHT,
+		"Memory: %.1f/%.1f GB (%.1f%%)\n",
 		float64(vmStat.Used)/1e9, float64(vmStat.Total)/1e9, vmStat.UsedPercent,
 	)
 	return statsText
