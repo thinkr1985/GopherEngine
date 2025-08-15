@@ -95,7 +95,7 @@ func NewSunLight(s *Scene) *Light {
 		Intensity:   1.0,
 		Attenuation: 1.0,
 		Type:        LightTypeSun,
-		Shadows:     false,
+		Shadows:     true,
 	}
 	s.Lights = append(s.Lights, l)
 	// making light color a white.

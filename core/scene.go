@@ -175,7 +175,8 @@ func (s *Scene) Render() {
 
 	// Drawing scene elements
 	s.ViewAxes.Draw(s.Renderer, s.Camera)
-	viewDir := s.Camera.Transform.GetForward()
+	// s.Grid.Draw(s.Renderer, s.Camera)
+	viewDir := s.Camera.Transform.GetForward().Negate()
 
 	if s.Renderer.MultiThreading {
 		s.RenderOnThreads(viewDir)
@@ -207,7 +208,12 @@ func (s *Scene) RenderScene(viewDir nomath.Vec3) {
 			for _, triangle := range geom.Triangles {
 				// Backface culling
 				if s.Renderer.BackFaceCulling {
-					if triangle.Normal().Dot(viewDir) > 0 || triangle.WorldNormal.Dot(viewDir) > 0 {
+					// Use the transformed world normal
+					worldNormal := normalMatrix.TransformVec3(triangle.Normal()).Normalize()
+					triangle.WorldNormal = worldNormal
+
+					// Cull if facing away from camera (dot product > 0 would mean facing toward camera)
+					if worldNormal.Dot(viewDir) > 0 {
 						continue
 					}
 				}
@@ -276,6 +282,7 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 
 			modelMatrix := geom.Transform.GetWorldMatrix()
 			mvpMatrix := s.Camera.cachedViewProjMatrix.Multiply(modelMatrix)
+			normalMatrix := modelMatrix.Inverse().Transpose()
 
 			// Precompute shadow matrices for all lights
 			shadowMatrices := make([]nomath.Mat4, len(s.Lights))
@@ -288,7 +295,12 @@ func (s *Scene) RenderOnThreads(viewDir nomath.Vec3) {
 			for _, tri := range geom.Triangles {
 				// Backface culling
 				if s.Renderer.BackFaceCulling {
-					if tri.Normal().Dot(viewDir) > 0 || tri.WorldNormal.Dot(viewDir) > 0 {
+					// Use the transformed world normal
+					worldNormal := normalMatrix.TransformVec3(tri.Normal()).Normalize()
+					tri.WorldNormal = worldNormal
+
+					// Cull if facing away from camera (dot product > 0 would mean facing toward camera)
+					if worldNormal.Dot(viewDir) > 0 {
 						continue
 					}
 				}

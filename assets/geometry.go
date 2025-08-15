@@ -18,7 +18,7 @@ type Geometry struct {
 	BoundingBox *nomath.BoundingBox
 	Material    *lookdev.Material
 	IsVisible   bool
-	SoftNormals bool
+	SoftNormals bool // When true, uses vertex normals; when false, uses face normals
 }
 
 func (g *Geometry) NewGeometry() *Geometry {
@@ -29,7 +29,7 @@ func (g *Geometry) NewGeometry() *Geometry {
 		BoundingBox: nomath.NewBoundingBox(),
 		Material:    lookdev.NewMaterial("DefaultMaterial"),
 		IsVisible:   true,
-		SoftNormals: true,
+		SoftNormals: true, // Default to smooth normals
 	}
 	geo.ComputeBoundingBox()
 	return geo

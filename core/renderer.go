@@ -49,7 +49,7 @@ type Renderer3D struct {
 
 func NewRenderer3D() *Renderer3D {
 	r := &Renderer3D{
-		BackFaceCulling:     false,
+		BackFaceCulling:     true,
 		Framebuffer:         make([][]lookdev.ColorRGBA, SCREEN_HEIGHT),
 		DepthBuffer:         make([][]float32, SCREEN_HEIGHT),
 		rowLocks:            make([]sync.Mutex, SCREEN_HEIGHT), // INIT ROW LOCKS
@@ -840,7 +840,6 @@ func (r *Renderer3D) calculateLighting(
 	uv := tri.InterpolatedUV(u, v, w)
 	baseColor := *lookdev.NewColorRGBA()
 	if tri.HasTexture {
-
 		baseColor = tri.Material.DiffuseTexture.Sample(uv.U, uv.V)
 	} else {
 		baseColor = tri.Material.DiffuseColor
@@ -855,15 +854,17 @@ func (r *Renderer3D) calculateLighting(
 	localPos := tri.V0.Multiply(u).Add(tri.V1.Multiply(v)).Add(tri.V2.Multiply(w))
 	fragmentPos := modelMatrix.MultiplyVec4(localPos.ToVec4(1.0)).ToVec3()
 
-	worldNormal := tri.WorldNormal
-	// Get interpolated normal
-	if r.OverrideSoftNormals {
-		if tri.Parent.SoftNormals {
-			worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(
-				tri.InterpolatedNormal(u, v, w),
-			)
-		}
+	// Calculate normal based on override settings
+	var worldNormal nomath.Vec3
+	if r.OverrideSoftNormals || (tri.Parent != nil && !tri.Parent.SoftNormals) {
+		// Use face normal (hard edges)
+		worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(tri.Normal()).Normalize()
+	} else {
+		// Use interpolated normal (soft edges)
+		interpNormal := tri.N0.Multiply(u).Add(tri.N1.Multiply(v)).Add(tri.N2.Multiply(w))
+		worldNormal = modelMatrix.Inverse().Transpose().TransformVec3(interpNormal).Normalize()
 	}
+	tri.WorldNormal = worldNormal
 
 	// Apply normal mapping if available
 	if tri.Material.NormalTexture != nil && tri.UV0 != nil && tri.UV1 != nil && tri.UV2 != nil {
@@ -879,6 +880,7 @@ func (r *Renderer3D) calculateLighting(
 		worldNormal = tbn.MultiplyVec3(tangentNormal).Normalize()
 	}
 
+	// Rest of the lighting calculation remains the same...
 	// Initialize lighting with ambient
 	ambientStrength := 0.1
 	diffuseR := float64(baseColor.R) * ambientStrength

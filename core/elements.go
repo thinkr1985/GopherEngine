@@ -3,6 +3,7 @@ package core
 import (
 	"GopherEngine/lookdev"
 	"GopherEngine/nomath"
+	"math"
 )
 
 // ViewAxes represents the 3D axis indicator displayed in screen space
@@ -35,7 +36,7 @@ func (va *ViewAxes) Update(camera *PerspectiveCamera) {
 	// Get camera orientation vectors
 	right := camera.Transform.GetRight()
 	up := camera.Transform.GetUp()
-	forward := camera.Transform.GetForward()
+	forward := camera.Transform.GetForward().Negate()
 
 	// Scale vectors to make them visible
 	scale := 0.2 * va.Size
@@ -93,64 +94,23 @@ func (va *ViewAxes) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 	}
 }
 
-// Grid represents a fixed-size 3D grid
 type Grid struct {
 	Enabled     bool
-	Lines       []LineSegment // Pre-computed line segments
 	Color       lookdev.ColorRGBA
 	CenterColor lookdev.ColorRGBA
-}
-
-type LineSegment struct {
-	Start, End nomath.Vec3
-	Color      *lookdev.ColorRGBA
+	Spacing     float64
+	Size        int
+	MaxDistance float64 // Distance beyond which grid isn't drawn
 }
 
 func NewGrid() *Grid {
-	g := &Grid{
+	return &Grid{
 		Enabled:     true,
-		Color:       lookdev.ColorRGBA{R: 191, G: 196, B: 197, A: 1.0}, // Brighter color
+		Color:       lookdev.ColorRGBA{R: 191, G: 196, B: 197, A: 0.5}, // Semi-transparent
 		CenterColor: lookdev.ColorRGBA{R: 255, G: 0, B: 0, A: 1.0},     // Red center lines
-	}
-	g.BuildGrid(21, 5.0) // 21x21 grid with spacing 1.0
-	return g
-}
-
-func (g *Grid) BuildGrid(size int, spacing float64) {
-	halfSize := float64(size-1) * spacing / 2
-	halfCount := size / 2
-
-	// Pre-allocate exact number of lines (size*2 for X + size*2 for Z)
-	g.Lines = make([]LineSegment, 0, size*2)
-
-	// Build X-axis lines
-	for i := -halfCount; i <= halfCount; i++ {
-		x := float64(i) * spacing
-		color := &g.Color
-		if i == 0 && g.Enabled {
-			color = &g.CenterColor
-		}
-
-		g.Lines = append(g.Lines, LineSegment{
-			Start: nomath.Vec3{X: x, Y: 0, Z: -halfSize},
-			End:   nomath.Vec3{X: x, Y: 0, Z: halfSize},
-			Color: color,
-		})
-	}
-
-	// Build Z-axis lines
-	for i := -halfCount; i <= halfCount; i++ {
-		z := float64(i) * spacing
-		color := &g.Color
-		if i == 0 && g.Enabled {
-			color = &g.CenterColor
-		}
-
-		g.Lines = append(g.Lines, LineSegment{
-			Start: nomath.Vec3{X: -halfSize, Y: 0, Z: z},
-			End:   nomath.Vec3{X: halfSize, Y: 0, Z: z},
-			Color: color,
-		})
+		Spacing:     5.0,
+		Size:        21, // Should be odd number to have center line
+		MaxDistance: 200.0,
 	}
 }
 
@@ -159,15 +119,70 @@ func (g *Grid) Draw(renderer *Renderer3D, camera *PerspectiveCamera) {
 		return
 	}
 
-	// Draw pre-computed lines
-	for _, line := range g.Lines {
-		// Create a small bounding box around the line
-		min := nomath.Min(line.Start, line.End) // Use the standalone Min function
-		max := nomath.Max(line.Start, line.End) // Use the standalone Max function
-		bbox := &nomath.BoundingBox{Min: min, Max: max}
+	// Get camera position and direction
+	camPos := camera.Transform.Position
+	viewDir := camera.Transform.GetForward()
 
-		if camera.IsVisible(bbox) {
-			renderer.DrawLine3D(line.Start, line.End, camera, line.Color)
+	// Skip if camera is too far or looking away
+	if camPos.Y > g.MaxDistance || viewDir.Dot(nomath.Vec3{Y: -1}) < 0.3 {
+		return
+	}
+
+	// Calculate grid center at camera's XZ position but fixed Y=0
+	center := nomath.Vec3{X: camPos.X, Y: 0, Z: camPos.Z}
+
+	// Determine LOD based on distance
+	distance := camPos.DistanceTo(center)
+	lod := 1
+	if distance > 50 {
+		lod = 2
+	}
+	if distance > 100 {
+		lod = 4
+	}
+
+	// Calculate visible range based on camera frustum
+	halfSize := float64(g.Size-1) * g.Spacing / 2
+	startX := center.X - halfSize
+	endX := center.X + halfSize
+	startZ := center.Z - halfSize
+	endZ := center.Z + halfSize
+
+	// Draw X-axis lines
+	for z := startZ; z <= endZ; z += g.Spacing * float64(lod) {
+		// Skip if not aligned with LOD
+		if math.Mod(z, g.Spacing*float64(lod)) != 0 {
+			continue
 		}
+
+		color := &g.Color
+		if math.Abs(z-center.Z) < g.Spacing/2 {
+			color = &g.CenterColor
+		}
+
+		renderer.DrawLine3D(
+			nomath.Vec3{X: startX, Y: 0, Z: z},
+			nomath.Vec3{X: endX, Y: 0, Z: z},
+			camera, color,
+		)
+	}
+
+	// Draw Z-axis lines
+	for x := startX; x <= endX; x += g.Spacing * float64(lod) {
+		// Skip if not aligned with LOD
+		if math.Mod(x, g.Spacing*float64(lod)) != 0 {
+			continue
+		}
+
+		color := &g.Color
+		if math.Abs(x-center.X) < g.Spacing/2 {
+			color = &g.CenterColor
+		}
+
+		renderer.DrawLine3D(
+			nomath.Vec3{X: x, Y: 0, Z: startZ},
+			nomath.Vec3{X: x, Y: 0, Z: endZ},
+			camera, color,
+		)
 	}
 }

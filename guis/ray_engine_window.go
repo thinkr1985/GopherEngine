@@ -19,7 +19,7 @@ var display_debug_screen = false
 var gui_widgets []interface{}
 var appLayout *Layout
 
-func initWindow() {
+func initWindow(scene *core.Scene) {
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(int32(core.SCREEN_WIDTH), int32(core.SCREEN_HEIGHT), "Gopher Engine")
 
@@ -32,7 +32,7 @@ func initWindow() {
 	rl.SetTargetFPS(240)
 
 	// Initialize layout
-	appLayout = NewLayout()
+	appLayout = NewLayout(scene)
 
 	// Set up panel contents
 	appLayout.MenuBar.Content = drawMenuBar
@@ -43,7 +43,7 @@ func initWindow() {
 }
 
 func Window(scene *core.Scene) {
-	initWindow()
+	initWindow(scene)
 	defer rl.CloseWindow()
 	defer rl.UnloadFont(debugFont)
 

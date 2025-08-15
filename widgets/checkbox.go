@@ -13,20 +13,32 @@ type CheckBox struct {
 	FontSize  int32
 	BoxColor  rl.Color
 	TextColor rl.Color
+	Xpos      float32
+	Ypos      float32
+	Width     float32
+	Height    float32
+	OnToggle  func(bool)
 }
 
 func NewCheckBox(xPos, yPos, width, height int, label string) *CheckBox {
 	InitializeWidgetFont()
 	// defer rl.UnloadFont(widget_default_font)
 
-	return &CheckBox{
-		Bounds:    rl.NewRectangle(float32(xPos), float32(yPos), float32(width), float32(height)),
+	ck := &CheckBox{
+		Xpos:      float32(xPos),
+		Ypos:      float32(yPos),
+		Width:     float32(width),
+		Height:    float32(height),
 		IsChecked: false,
 		Label:     label,
 		FontSize:  12,
 		BoxColor:  rl.DarkGray,
 		TextColor: rl.White,
 	}
+	ck.OnToggle = ck.TriggerFunc
+	ck.Bounds = rl.NewRectangle(float32(xPos), float32(yPos), float32(width), float32(height))
+	return ck
+
 }
 
 func (cb *CheckBox) Draw() {
@@ -50,12 +62,12 @@ func (cb *CheckBox) Draw() {
 		1.0,                  // Spacing (default 1.0)
 		cb.TextColor,         // Text color
 	)
-	// 	rl.DrawText(labelText, int32(cb.Bounds.X+cb.Bounds.Width+10), int32(cb.Bounds.Y), cb.FontSize, cb.TextColor)
 }
 
 func (cb *CheckBox) StateText() string {
 	if cb.IsChecked {
 		return "On"
+
 	}
 	return "Off"
 }
@@ -66,5 +78,13 @@ func (cb *CheckBox) Update() {
 	// Check if the mouse is pressed and within the bounds of the checkbox
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) && rl.CheckCollisionPointRec(mousePos, cb.Bounds) {
 		cb.IsChecked = !cb.IsChecked
+		if cb.OnToggle != nil {
+			cb.OnToggle(cb.IsChecked)
+		}
 	}
+
+}
+
+func (cb *CheckBox) TriggerFunc(value bool) {
+	fmt.Println("clicked...")
 }

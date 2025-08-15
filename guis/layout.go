@@ -1,6 +1,7 @@
 package guis
 
 import (
+	"GopherEngine/core"
 	"GopherEngine/widgets"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -28,20 +29,22 @@ type Panel struct {
 }
 
 type Layout struct {
+	Scene                *core.Scene
 	MenuBarHeight        float32
 	SceneExplorerWidth   float32
 	AttributeEditorWidth float32
 
 	MenuBar         *Panel
 	SceneExplorer   *Panel
-	RenderPanel     *Panel
+	RenderPanel     *RenderPanel
 	AttributeEditor *Panel
 	AssetBrowser    *Panel
 	resizeState     ResizeState
 }
 
-func NewLayout() *Layout {
+func NewLayout(scene *core.Scene) *Layout {
 	layout := &Layout{
+		Scene:                scene,
 		MenuBarHeight:        30,
 		SceneExplorerWidth:   250,
 		AttributeEditorWidth: 300,
@@ -61,16 +64,11 @@ func NewLayout() *Layout {
 		BgColor:     rl.NewColor(40, 40, 40, 255),
 		BorderColor: rl.NewColor(70, 70, 70, 255),
 	}
-
-	layout.RenderPanel = &Panel{
-		Title:       "Render View",
-		IsVisible:   true,
-		BgColor:     rl.NewColor(30, 30, 30, 255),
-		BorderColor: rl.NewColor(60, 60, 60, 255),
-	}
+	render_panel := NewRenderPanel(layout)
+	layout.RenderPanel = render_panel
 
 	layout.AttributeEditor = &Panel{
-		Title:       "Attributes",
+		Title:       "Properties",
 		IsVisible:   true,
 		BgColor:     rl.NewColor(40, 40, 40, 255),
 		BorderColor: rl.NewColor(70, 70, 70, 255),
@@ -114,13 +112,7 @@ func (l *Layout) Update(screenWidth, screenHeight int32) {
 		targetHeight = availableHeight
 		targetWidth = targetHeight * 16 / 9
 	}
-
-	l.RenderPanel.Bounds = rl.NewRectangle(
-		l.SceneExplorerWidth,
-		l.MenuBarHeight,
-		targetWidth,
-		targetHeight,
-	)
+	l.RenderPanel.Update(targetWidth, targetHeight)
 
 	remainingHeight := mainContentHeight - targetHeight
 	assetBrowserHeight := max(100, remainingHeight)
@@ -319,9 +311,11 @@ func (l *Layout) HandleResize() {
 func (l *Layout) Draw() {
 	l.DrawPanel(l.MenuBar)
 	l.DrawPanel(l.SceneExplorer)
-	l.DrawPanel(l.RenderPanel)
+	// l.DrawPanel(l.RenderPanel)
+	l.RenderPanel.Draw()
 	l.DrawPanel(l.AttributeEditor)
 	l.DrawPanel(l.AssetBrowser)
+	l.RenderPanel.DrawContents()
 }
 
 func max(a, b float32) float32 {
