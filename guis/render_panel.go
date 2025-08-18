@@ -25,118 +25,97 @@ type RenderPanel struct {
 func NewRenderPanel(layout *Layout) *RenderPanel {
 	rp := &RenderPanel{
 		Layout:              layout,
-		Title:               "Render View",
+		Title:               "Render Settings",
 		IsVisible:           true,
 		BgColor:             rl.NewColor(30, 30, 30, 255),
 		BorderColor:         rl.NewColor(60, 60, 60, 255),
 		SoftNormalCheck:     *widgets.NewCheckBox(10, 10, 20, 20, "Soft Normals"),
 		FogCheck:            *widgets.NewCheckBox(10, 50, 20, 20, "Fog"),
-		DOFCheck:            *widgets.NewCheckBox(10, 150, 20, 20, "Depth Of Field"),
-		ShadowsCheck:        *widgets.NewCheckBox(10, 150, 20, 20, "Shadows"),
-		MultiThreadingCheck: *widgets.NewCheckBox(10, 150, 20, 20, "MultiThreading"),
+		DOFCheck:            *widgets.NewCheckBox(10, 90, 20, 20, "Depth Of Field"),
+		ShadowsCheck:        *widgets.NewCheckBox(10, 130, 20, 20, "Shadows"),
+		MultiThreadingCheck: *widgets.NewCheckBox(10, 170, 20, 20, "MultiThreading"),
 	}
+
+	// Set up toggle handlers
 	rp.SoftNormalCheck.OnToggle = rp.ToggleSoftNormals
 	rp.FogCheck.OnToggle = rp.ToggleFog
 	rp.DOFCheck.OnToggle = rp.ToggleDOF
 	rp.ShadowsCheck.OnToggle = rp.ToggleShadow
 	rp.MultiThreadingCheck.OnToggle = rp.ToggleMultitheading
-	return rp
 
+	// Initialize checkboxes to match current scene state
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.SoftNormalCheck.IsChecked = !rp.Layout.Scene.Renderer.OverrideSoftNormals
+		rp.FogCheck.IsChecked = rp.Layout.Scene.Renderer.FogEnabled
+		rp.DOFCheck.IsChecked = rp.Layout.Scene.Renderer.DOFEnabled
+		rp.ShadowsCheck.IsChecked = rp.Layout.Scene.DefaultLight.Shadows
+		rp.MultiThreadingCheck.IsChecked = rp.Layout.Scene.Renderer.MultiThreading
+	}
+
+	return rp
 }
 
 func (rp *RenderPanel) Update(targetWidth, targetHeight float32) {
+	// Update checkbox positions relative to their container
+	rp.FogCheck.Bounds = rl.NewRectangle(20, 50, 20, 20)
+	rp.SoftNormalCheck.Bounds = rl.NewRectangle(20, 90, 20, 20)
+	rp.DOFCheck.Bounds = rl.NewRectangle(20, 130, 20, 20)
+	rp.ShadowsCheck.Bounds = rl.NewRectangle(20, 170, 20, 20)
+	rp.MultiThreadingCheck.Bounds = rl.NewRectangle(20, 210, 20, 20)
 
-	rp.Layout.RenderPanel.Bounds = rl.NewRectangle(
-		rp.Layout.SceneExplorerWidth,
-		rp.Layout.MenuBarHeight,
-		targetWidth,
-		targetHeight,
-	)
-	widget_x_pos := float32(rp.Layout.SceneExplorer.Bounds.Width+rp.Layout.RenderPanel.Bounds.Width) + 10
-	rp.FogCheck.Bounds = rl.NewRectangle(widget_x_pos, float32(60), float32(rp.FogCheck.Width), float32(rp.FogCheck.Height))
-	rp.SoftNormalCheck.Bounds = rl.NewRectangle(widget_x_pos, float32(90), float32(rp.SoftNormalCheck.Width), float32(rp.SoftNormalCheck.Height))
-	rp.DOFCheck.Bounds = rl.NewRectangle(widget_x_pos, float32(120), float32(rp.DOFCheck.Width), float32(rp.DOFCheck.Height))
-	rp.ShadowsCheck.Bounds = rl.NewRectangle(widget_x_pos, float32(150), float32(rp.ShadowsCheck.Width), float32(rp.ShadowsCheck.Height))
-	rp.MultiThreadingCheck.Bounds = rl.NewRectangle(widget_x_pos, float32(180), float32(rp.MultiThreadingCheck.Width), float32(rp.MultiThreadingCheck.Height))
-
-	rp.MultiThreadingCheck.Update()
+	// Update all checkboxes
 	rp.FogCheck.Update()
 	rp.SoftNormalCheck.Update()
 	rp.DOFCheck.Update()
 	rp.ShadowsCheck.Update()
-}
-
-func (rp *RenderPanel) Draw() {
-
-	if !rp.IsVisible {
-		return
-	}
-
-	// Draw panel background and title (existing code)
-	rl.DrawRectangleRec(rp.Bounds, rp.BgColor)
-	rl.DrawRectangleLinesEx(rp.Bounds, 1, rp.BorderColor)
-
-	titleHeight := float32(20)
-
-	titleRect := rl.NewRectangle(
-		rp.Bounds.X, rp.Bounds.Y,
-		rp.Bounds.Width, titleHeight,
-	)
-
-	rl.DrawRectangleRec(titleRect, rl.NewColor(30, 30, 30, 255))
-	rl.DrawRectangleLinesEx(titleRect, 1, rl.NewColor(60, 60, 60, 255))
-
-	// Draw content if available (existing code)
-	if rp.Content != nil {
-		contentRect := rl.NewRectangle(
-			rp.Bounds.X,
-			rp.Bounds.Y+titleHeight,
-			rp.Bounds.Width,
-			rp.Bounds.Height-titleHeight,
-		)
-
-		rl.BeginScissorMode(
-			int32(contentRect.X),
-			int32(contentRect.Y),
-			int32(contentRect.Width),
-			int32(contentRect.Height),
-		)
-
-		rp.Content()
-
-		rl.EndScissorMode()
-	}
-	// rp.DrawContents() // Don't draw your contents here
+	rp.MultiThreadingCheck.Update()
 }
 
 func (rp *RenderPanel) DrawContents() {
-	rp.MultiThreadingCheck.Draw()
+	// Draw title
+	rl.DrawTextEx(
+		widgets.Widget_default_font,
+		"Render Settings",
+		rl.NewVector2(20, 10),
+		18,
+		1,
+		rl.White,
+	)
+
+	// Draw all checkboxes
 	rp.FogCheck.Draw()
 	rp.SoftNormalCheck.Draw()
 	rp.DOFCheck.Draw()
 	rp.ShadowsCheck.Draw()
+	rp.MultiThreadingCheck.Draw()
 }
 
 func (rp *RenderPanel) ToggleFog(value bool) {
-	rp.Layout.Scene.Renderer.FogEnabled = value
-
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.Layout.Scene.Renderer.FogEnabled = value
+	}
 }
 
 func (rp *RenderPanel) ToggleDOF(value bool) {
-	rp.Layout.Scene.Renderer.DOFEnabled = value
-
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.Layout.Scene.Renderer.DOFEnabled = value
+	}
 }
 
 func (rp *RenderPanel) ToggleShadow(value bool) {
-	rp.Layout.Scene.DefaultLight.Shadows = value
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.Layout.Scene.DefaultLight.Shadows = value
+	}
 }
 
 func (rp *RenderPanel) ToggleSoftNormals(value bool) {
-	rp.Layout.Scene.Renderer.OverrideSoftNormals = value
-
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.Layout.Scene.Renderer.OverrideSoftNormals = !value
+	}
 }
 
 func (rp *RenderPanel) ToggleMultitheading(value bool) {
-	rp.Layout.Scene.Renderer.MultiThreading = value
-
+	if rp.Layout != nil && rp.Layout.Scene != nil {
+		rp.Layout.Scene.Renderer.MultiThreading = value
+	}
 }

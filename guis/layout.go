@@ -34,9 +34,10 @@ type Layout struct {
 	SceneExplorerWidth   float32
 	AttributeEditorWidth float32
 
-	MenuBar         *Panel
-	SceneExplorer   *Panel
-	RenderPanel     *RenderPanel
+	MenuBar       *Panel
+	SceneExplorer *Panel
+	// RenderPanel     *RenderPanel
+	RenderPanel     *PropertiesPanel
 	AttributeEditor *Panel
 	AssetBrowser    *Panel
 	resizeState     ResizeState
@@ -64,8 +65,9 @@ func NewLayout(scene *core.Scene) *Layout {
 		BgColor:     rl.NewColor(40, 40, 40, 255),
 		BorderColor: rl.NewColor(70, 70, 70, 255),
 	}
-	render_panel := NewRenderPanel(layout)
-	layout.RenderPanel = render_panel
+
+	properties_panel := NewPropertiesPanel(layout)
+	layout.RenderPanel = properties_panel
 
 	layout.AttributeEditor = &Panel{
 		Title:       "Properties",
@@ -136,7 +138,7 @@ func (l *Layout) DrawPanel(p *Panel) {
 	rl.DrawRectangleRec(p.Bounds, p.BgColor)
 	rl.DrawRectangleLinesEx(p.Bounds, 1, p.BorderColor)
 
-	titleHeight := float32(20)
+	titleHeight := float32(30)
 	if p.Title == "Menu" {
 		titleHeight = 0
 	}
@@ -157,15 +159,10 @@ func (l *Layout) DrawPanel(p *Panel) {
 			widgets.Widget_default_font,
 			p.Title,
 			rl.NewVector2(textX, textY),
-			12,
+			14,
 			1.0,
 			rl.White,
 		)
-	}
-
-	// Only draw resize handles for SceneExplorer and AttributeEditor
-	if p == l.SceneExplorer || p == l.AttributeEditor {
-		l.drawResizeHandles(p)
 	}
 
 	// Draw content if available (existing code)
@@ -316,6 +313,10 @@ func (l *Layout) Draw() {
 	l.DrawPanel(l.AttributeEditor)
 	l.DrawPanel(l.AssetBrowser)
 	l.RenderPanel.DrawContents()
+
+	// Only draw resize handles for SceneExplorer and AttributeEditor
+	l.drawResizeHandles(l.SceneExplorer)
+	l.drawResizeHandles(l.AttributeEditor)
 }
 
 func max(a, b float32) float32 {

@@ -7,18 +7,26 @@ import (
 )
 
 type AssetReference struct {
-	Name     string
-	FilePath string
-	ID       string
-	Parent   *Assembly
+	Name         string
+	FilePath     string
+	ID           string
+	Parent       *Assembly
+	ReferenceMap map[string]any
 }
 
 func NewAssetReference(name string, file_path string) *AssetReference {
-	return &AssetReference{
-		Name:     name,
-		ID:       utilities.GenerateUniqueID(),
-		FilePath: file_path,
+	ar := &AssetReference{
+		Name:         name,
+		ID:           utilities.GenerateUniqueID(),
+		FilePath:     file_path,
+		ReferenceMap: make(map[string]any),
 	}
+	ar.UpdateReferenceMap()
+	return ar
+}
+
+func (ar *AssetReference) UpdateReferenceMap() {
+	ar.ReferenceMap["FilePath"] = ar.FilePath
 }
 
 func (ar *AssetReference) String() string {

@@ -26,15 +26,17 @@ type TabWidget struct {
 }
 
 func NewTabWidget(x, y, width, height int32, tabHeight int32, fontSize int32) *TabWidget {
-	return &TabWidget{
+	tab := &TabWidget{
 		Bounds:        rl.NewRectangle(float32(x), float32(y), float32(width), float32(height)),
 		TabHeight:     float32(tabHeight),
 		FontSize:      fontSize,
 		TextColor:     rl.White,
-		ActiveColor:   rl.NewColor(70, 70, 70, 255),    // Dark gray
-		InactiveColor: rl.NewColor(100, 100, 100, 255), // Medium gray
-		BorderColor:   rl.LightGray,
+		ActiveColor:   rl.DarkGray,
+		InactiveColor: rl.NewColor(40, 40, 40, 255),
+		BorderColor:   rl.NewColor(70, 70, 70, 255),
 	}
+	InitializeWidgetFont()
+	return tab
 }
 
 func (tw *TabWidget) AddTab(label string, content func()) {
@@ -143,9 +145,9 @@ func (tw *TabWidget) Draw() {
 		rl.DrawRectangleLinesEx(tabRect, 1, tw.BorderColor)
 
 		// Draw tab label (left-aligned with padding)
-		textX := xPos + 5
+		textX := float32(xPos + 5)
 		textY := tw.Bounds.Y + (tw.TabHeight-float32(tw.FontSize))/2
-		rl.DrawText(tab.Label, int32(textX), int32(textY), tw.FontSize, tw.TextColor)
+		rl.DrawTextEx(Widget_body_font, tab.Label, rl.NewVector2(textX, textY), 14, 0, tw.TextColor)
 
 		// For closeable tabs, draw close button
 		if strings.HasPrefix(tab.Label, "× ") { // Example check for closeable tabs
@@ -156,10 +158,10 @@ func (tw *TabWidget) Draw() {
 			closeBtnY := tw.Bounds.Y + (tw.TabHeight-closeBtnSize)/2
 
 			// Draw close button background (light color)
-			closeBtnColor := rl.NewColor(200, 200, 200, 150) // Semi-transparent light gray
+			closeBtnColor := rl.Red // Semi-transparent light gray
 			if rl.CheckCollisionPointRec(rl.GetMousePosition(),
 				rl.NewRectangle(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize)) {
-				closeBtnColor = rl.NewColor(220, 220, 220, 200) // Lighter when hovered
+				closeBtnColor = rl.Green
 			}
 			rl.DrawRectangleRounded(
 				rl.NewRectangle(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize),
@@ -169,7 +171,7 @@ func (tw *TabWidget) Draw() {
 			)
 
 			// Draw X symbol
-			xColor := rl.NewColor(80, 80, 80, 255) // Dark gray X
+			xColor := rl.White
 			xPadding := closeBtnSize * 0.25
 			rl.DrawLineEx(
 				rl.Vector2{X: closeBtnX + xPadding, Y: closeBtnY + xPadding},
@@ -195,7 +197,7 @@ func (tw *TabWidget) Draw() {
 		tw.Bounds.Width,
 		tw.Bounds.Height-tw.TabHeight,
 	)
-	rl.DrawRectangleRec(contentRect, rl.LightGray)
+	rl.DrawRectangleRec(contentRect, rl.NewColor(40, 40, 40, 255))
 	rl.DrawRectangleLinesEx(contentRect, 1, tw.BorderColor)
 
 	// Draw active tab content
@@ -249,7 +251,7 @@ func (tw *TabWidget) DrawCloseableTab(tab *Tab, tabRect rl.Rectangle) {
 	// Draw tab label (left-aligned with padding)
 	textX := tabRect.X + 5
 	textY := tabRect.Y + (tabRect.Height-float32(tw.FontSize))/2
-	rl.DrawText(tab.Label, int32(textX), int32(textY), tw.FontSize, tw.TextColor)
+	rl.DrawTextEx(Widget_body_font, tab.Label, rl.NewVector2(float32(textX), float32(textY)), 12, 0, tw.TextColor)
 
 	// Draw close button (small rectangle with X)
 	closeBtnSize := float32(tw.FontSize) * 0.8
@@ -258,10 +260,10 @@ func (tw *TabWidget) DrawCloseableTab(tab *Tab, tabRect rl.Rectangle) {
 	closeBtnY := tabRect.Y + (tabRect.Height-closeBtnSize)/2
 
 	// Draw close button background (light color)
-	closeBtnColor := rl.NewColor(200, 200, 200, 150) // Semi-transparent light gray
+	closeBtnColor := rl.Red
 	if rl.CheckCollisionPointRec(rl.GetMousePosition(),
 		rl.NewRectangle(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize)) {
-		closeBtnColor = rl.NewColor(220, 220, 220, 200) // Lighter when hovered
+		closeBtnColor = rl.Green
 	}
 	rl.DrawRectangleRounded(
 		rl.NewRectangle(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize),
@@ -271,7 +273,7 @@ func (tw *TabWidget) DrawCloseableTab(tab *Tab, tabRect rl.Rectangle) {
 	)
 
 	// Draw X symbol
-	xColor := rl.NewColor(80, 80, 80, 255) // Dark gray X
+	xColor := rl.Orange
 	xPadding := closeBtnSize * 0.25
 	rl.DrawLineEx(
 		rl.Vector2{X: closeBtnX + xPadding, Y: closeBtnY + xPadding},

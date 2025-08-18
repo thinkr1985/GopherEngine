@@ -20,6 +20,7 @@ type Assembly struct {
 	Transform   *nomath.Transform
 	BoundingBox *nomath.BoundingBox
 	IsVisible   bool
+	AssemblyMap map[string]any
 }
 
 func NewAssembly() *Assembly {
@@ -35,9 +36,17 @@ func NewAssembly() *Assembly {
 		Vertices:    make([]*nomath.Vec3, 0),
 		Triangles:   make([]*Triangle, 0),
 		BoundingBox: nomath.NewBoundingBox(),
+		AssemblyMap: make(map[string]any),
 	}
 	a.ComputeBoundingBox()
+	a.UpdateAssemblyMap()
 	return &a
+}
+
+func (a *Assembly) UpdateAssemblyMap() {
+	a.AssemblyMap["Geometries"] = a.Geometries
+	a.AssemblyMap["References"] = a.References
+
 }
 
 func (a *Assembly) String() string {
@@ -60,11 +69,13 @@ func (a *Assembly) AddGeometry(geom *Geometry) {
 	a.Vertices = append(a.Vertices, geom.Vertices...)
 	a.Materials = append(a.Materials, geom.Material)
 	a.ComputeBoundingBox()
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) AddReference(name string, file_path string) {
 	reference := NewAssetReference(name, file_path)
 	a.References = append(a.References, reference)
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) LoadReference() {
@@ -80,6 +91,7 @@ func (a *Assembly) ClearGeometries() {
 	a.Materials = nil
 	a.Textures = nil // optional, if you manage them similarly
 	a.ComputeBoundingBox()
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) RemoveGeometry(geom *Geometry) {
@@ -147,6 +159,7 @@ func (a *Assembly) RemoveGeometry(geom *Geometry) {
 
 	// Update bounding box
 	a.ComputeBoundingBox()
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) ReplaceGeometry(oldGeom, newGeom *Geometry) {
@@ -165,6 +178,7 @@ func (a *Assembly) ReplaceGeometry(oldGeom, newGeom *Geometry) {
 	}
 	a.RemoveGeometry(oldGeom)
 	a.AddGeometry(newGeom)
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) GetGeometryByID(id string) *Geometry {
@@ -181,6 +195,7 @@ func (a *Assembly) RemoveGeometryByID(id string) {
 	if geom != nil {
 		a.RemoveGeometry(geom)
 	}
+	a.UpdateAssemblyMap()
 }
 
 func (a *Assembly) SetDynamic() {

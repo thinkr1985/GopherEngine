@@ -12,7 +12,7 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-var engine_icon_path = "sources/go_engine_ico.png"
+var engine_icon_path = "icons/joystick.png"
 var debugFont rl.Font
 var isFirstFrame = true
 var display_debug_screen = false
@@ -104,9 +104,9 @@ func Window(scene *core.Scene) {
 			// Calculate the actual render area (excluding title bar)
 			renderArea := rl.NewRectangle(
 				appLayout.RenderPanel.Bounds.X,
-				appLayout.RenderPanel.Bounds.Y+20, // Below title
+				appLayout.RenderPanel.Bounds.Y+50, // Below title
 				appLayout.RenderPanel.Bounds.Width,
-				appLayout.RenderPanel.Bounds.Height-20, // Subtract title height
+				appLayout.RenderPanel.Bounds.Height-50, // Subtract title height
 			)
 
 			// Calculate source rectangle (entire rendered image)

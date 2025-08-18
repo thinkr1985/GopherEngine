@@ -37,17 +37,18 @@ func populate_scene(scene *core.Scene) {
 		asmb.Transform.SetScale(nomath.Vec3{X: scale_random, Y: scale_random, Z: scale_random})
 		asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: random, Z: 0})
 	}
-
-	i = 0
-	for i < 25 {
-		i += 1
-		asmb := scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
-		asmb.Transform.SetPosition(nomath.Vec3{X: float64(v2.IntN(100)), Y: 0, Z: float64(v2.IntN(200))})
-		scale_random := float64(v2.IntN(50))
-		random := 0.1 + rand.Float64()*(10.0-0.1)
-		asmb.Transform.SetScale(nomath.Vec3{X: scale_random, Y: scale_random, Z: scale_random})
-		asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: random, Z: 0})
-	}
+	/*
+		i = 0
+		for i < 25 {
+			i += 1
+			asmb := scene.LoadAsset("E:/GitHub/GopherEngine/tests/watchTower.asset")
+			asmb.Transform.SetPosition(nomath.Vec3{X: float64(v2.IntN(100)), Y: 0, Z: float64(v2.IntN(200))})
+			scale_random := float64(v2.IntN(50))
+			random := 0.1 + rand.Float64()*(10.0-0.1)
+			asmb.Transform.SetScale(nomath.Vec3{X: scale_random, Y: scale_random, Z: scale_random})
+			asmb.Transform.SetRotation(nomath.Vec3{X: 0, Y: random, Z: 0})
+		}
+	*/
 }
 
 func main() {

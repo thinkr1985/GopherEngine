@@ -35,6 +35,7 @@ type Scene struct {
 	Triangles            []*assets.Triangle
 	DrawnTriangles       int32
 	TotalTriangleCounter int32
+	SceneMap             map[string]any
 
 	// caching matrices
 	cachedViewMatrix       nomath.Mat4
@@ -61,6 +62,7 @@ func NewScene() *Scene {
 		Camera:   NewPerspectiveCamera(),
 		ViewAxes: NewViewAxes(),
 		Grid:     NewGrid(),
+		SceneMap: make(map[string]any),
 
 		// Resolution scaling defaults
 		ResolutionScale:       1.0,
@@ -79,7 +81,18 @@ func NewScene() *Scene {
 	s.Renderer.PreComputeLightDirs(&s)
 
 	s.Camera.Scene = &s
+	s.UpdateSceneMap()
 	return &s
+}
+
+func (s *Scene) UpdateSceneMap() {
+	s.SceneMap["Assemblies"] = s.Assemblies
+	s.SceneMap["Lights"] = s.Lights
+	s.SceneMap["DefaultLight"] = s.DefaultLight
+	s.SceneMap["Renderer"] = s.Renderer
+	s.SceneMap["Camera"] = s.Camera
+	s.SceneMap["ViewAxes"] = s.ViewAxes
+	s.SceneMap["Grid"] = s.Grid
 }
 
 func (s *Scene) UpdateScene() {
@@ -116,9 +129,10 @@ func (s *Scene) AddAssembly(assembly *assets.Assembly) {
 		for _, reference := range assembly.References {
 			reference.LoadReference()
 			s.AddAssembly(reference.Parent)
-
 		}
 	}
+
+	s.UpdateSceneMap()
 }
 
 func (s *Scene) LoadAsset(asset_path string) *assets.Assembly {
